@@ -1,0 +1,2395 @@
+"""Command-line entry point for the backend bootstrap milestone."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import subprocess
+import sys
+import time
+import uuid
+from pathlib import Path
+
+from .audit import JsonlAuditLogger
+from .diagnostics import diagnose_host_address
+from .config_suite import (
+    acl_apply_commands,
+    acl_router_config_commands,
+    acl_topology_js,
+    ospf_config_commands,
+    rip_config_commands,
+    routed_two_router_topology_js,
+    show_acl_commands,
+    show_ospf_config_commands,
+    show_rip_config_commands,
+    show_vlan_commands,
+    trunk_switch_config_commands,
+    trunk_topology_js,
+    vlan_switch_config_commands,
+    vlan_topology_js,
+)
+from .script_backend import (
+    acl_state_js,
+    configure_host_ip_js,
+    configure_acl_js,
+    configure_router_ipv4_js,
+    configure_static_routes_js,
+    configure_switch_vlans_js,
+    configure_trunk_port_js,
+    enter_ios_command_js,
+    fast_forward_js,
+    file_size_js,
+    host_ip_state_js,
+    minimal_topology_js,
+    new_project_js,
+    open_project_js,
+    read_command_output_js,
+    routing_state_js,
+    save_project_js,
+    start_ping_js,
+    switch_vlan_state_js,
+    terminal_state_js,
+    topology_state_js,
+    trunk_port_state_js,
+    router_ipv4_state_js,
+)
+from .script_bridge import PTBridgeServer, ScriptBridgeError
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_PT_ROOT = Path(r"D:\Cisco Packet Tracer 9.0.1")
+
+
+def _json_print(payload: object) -> None:
+    print(json.dumps(payload, indent=2, ensure_ascii=False))
+
+
+def _pt_paths(args: argparse.Namespace) -> tuple[Path, Path]:
+    pt_root = Path(args.pt_root).resolve() if args.pt_root else DEFAULT_PT_ROOT
+    return pt_root, pt_root / "bin" / "PacketTracer.exe"
+
+
+def command_doctor(args: argparse.Namespace) -> int:
+    pt_root, pt_exe = _pt_paths(args)
+    script_module = PROJECT_ROOT / "vendor" / "mcp-bridge.pts"
+    errors: list[str] = []
+    if not pt_exe.is_file():
+        errors.append(f"PacketTracer.exe not found: {pt_exe}")
+    if not script_module.is_file():
+        errors.append(f"Script Module not found: {script_module}")
+    payload = {
+        "pt_root": str(pt_root),
+        "pt_exe": str(pt_exe),
+        "script_module": str(script_module),
+        "pt_installed": pt_exe.is_file(),
+        "script_module_available": script_module.is_file(),
+        "validation_errors": errors,
+    }
+    payload["python"] = sys.version
+    payload["python_executable"] = sys.executable
+    _json_print(payload)
+    return 0 if not errors else 1
+
+
+def command_launch_gui(args: argparse.Namespace) -> int:
+    _, pt_exe = _pt_paths(args)
+    if not pt_exe.is_file():
+        raise FileNotFoundError(f"PacketTracer.exe not found: {pt_exe}")
+    process = subprocess.Popen([str(pt_exe)], cwd=str(pt_exe.parent))
+    _json_print(
+        {
+            "pid": process.pid,
+            "message": (
+                "Open Extensions > Scripting > Configure PT Script Modules, "
+                "add vendor/mcp-bridge.pts, then launch MCP Bridge."
+            ),
+        }
+    )
+    return 0
+
+
+def command_script_bridge(args: argparse.Namespace) -> int:
+    server = PTBridgeServer(port=args.bridge_port, result_timeout=args.result_timeout)
+    server.start()
+    _json_print(
+        {
+            "status": "listening",
+            "url": f"http://127.0.0.1:{server.port}",
+            "next_step": (
+                "Open Packet Tracer and launch Extensions > MCP Bridge. "
+                "Press Ctrl+C here to stop the bridge."
+            ),
+        }
+    )
+    try:
+        while True:
+            time.sleep(1)
+            if server.connected:
+                print("extension=connected", flush=True)
+                break
+    except KeyboardInterrupt:
+        server.stop()
+        return 0
+
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.stop()
+    return 0
+
+
+def command_script_demo(args: argparse.Namespace) -> int:
+    artifacts = PROJECT_ROOT / "artifacts"
+    artifacts.mkdir(parents=True, exist_ok=True)
+    project_path = (artifacts / "script-engine-smoke.pkt").resolve()
+    report_path = (artifacts / "script-engine-smoke.json").resolve()
+
+    bridge = PTBridgeServer(
+        port=args.bridge_port,
+        result_timeout=args.result_timeout,
+    )
+    report: dict[str, object] = {
+        "status": "starting",
+        "bridge_url": f"http://127.0.0.1:{args.bridge_port}",
+        "project_path": str(project_path),
+    }
+    try:
+        bridge.start()
+        bridge.wait_for_extension(timeout=args.connect_timeout)
+        report["extension_status"] = bridge.status()
+
+        report["new_project"] = bridge.execute_json(new_project_js())
+        report["create_topology"] = bridge.execute_json(minimal_topology_js())
+        report["before_save"] = bridge.execute_json(topology_state_js())
+
+        if project_path.exists():
+            project_path.unlink()
+        report["save_dispatch"] = bridge.execute_json(save_project_js(project_path))
+
+        deadline = time.monotonic() + args.save_timeout
+        file_state: dict[str, object] = {"exists": False, "size": 0}
+        while time.monotonic() < deadline:
+            raw_state = bridge.execute_json(file_size_js(project_path))
+            if isinstance(raw_state, dict):
+                file_state = raw_state
+            if file_state.get("exists") and int(file_state.get("size", 0)) > 0:
+                break
+            time.sleep(0.5)
+        report["saved_file"] = file_state
+        if not file_state.get("exists") or int(file_state.get("size", 0)) <= 0:
+            raise ScriptBridgeError("PT did not create the saved PKT file")
+
+        bridge.execute_json(new_project_js())
+        report["reopen"] = bridge.execute_json(open_project_js(project_path))
+        time.sleep(1)
+        report["after_reopen"] = bridge.execute_json(topology_state_js())
+        report["status"] = "passed"
+    except Exception as exc:
+        report["status"] = "failed"
+        report["error"] = f"{type(exc).__name__}: {exc}"
+        raise
+    finally:
+        bridge.stop()
+        report_path.write_text(
+            json.dumps(report, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+
+    _json_print(report)
+    return 0
+
+
+def parse_ping_output(output: str) -> dict[str, object]:
+    sent_match = re.search(r"Sent\s*=\s*(\d+)", output, re.IGNORECASE)
+    received_match = re.search(r"Received\s*=\s*(\d+)", output, re.IGNORECASE)
+    lost_match = re.search(r"Lost\s*=\s*(\d+)", output, re.IGNORECASE)
+    average_match = re.search(
+        r"Average\s*=\s*([0-9.]+)\s*ms", output, re.IGNORECASE
+    )
+
+    replies = len(re.findall(r"\bReply from\b", output, re.IGNORECASE))
+    timeouts = len(
+        re.findall(r"Request timed out", output, re.IGNORECASE)
+    )
+    has_summary = bool(sent_match and received_match and lost_match)
+    if has_summary:
+        sent = int(sent_match.group(1))
+        received = int(received_match.group(1))
+        lost = int(lost_match.group(1))
+    else:
+        sent = replies + timeouts
+        received = replies
+        lost = timeouts
+    complete = has_summary or sent >= 4
+    success = complete and sent > 0 and received == sent and lost == 0
+    success_rate = round((received / sent) * 100, 2) if sent else 0.0
+    return {
+        "success": success,
+        "complete": complete,
+        "sent": sent,
+        "received": received,
+        "lost": lost,
+        "success_rate": success_rate,
+        "average_ms": (
+            float(average_match.group(1)) if average_match else None
+        ),
+        "raw_output": output,
+    }
+
+
+def _run_ping(
+    bridge: PTBridgeServer,
+    audit: JsonlAuditLogger,
+    *,
+    label: str,
+    device: str,
+    destination: str,
+    timeout: float,
+) -> dict[str, object]:
+    ping_start = _logged_command(
+        bridge,
+        audit,
+        f"{label}_dispatch",
+        start_ping_js(device, destination),
+    )
+    if not isinstance(ping_start, dict) or "outputStart" not in ping_start:
+        raise ScriptBridgeError(f"Invalid ping start result: {ping_start!r}")
+    offset = int(ping_start["outputStart"])
+
+    output = ""
+    parsed: dict[str, object] = {}
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        time.sleep(0.5)
+        candidate = _logged_read(
+            bridge,
+            audit,
+            f"{label}_read_output",
+            read_command_output_js(device, offset),
+            timeout=min(max(timeout / 3, 4.0), 10.0),
+        )
+        if isinstance(candidate, dict) and isinstance(candidate.get("output"), str):
+            output = str(candidate["output"])
+            parsed = parse_ping_output(output)
+            if parsed.get("complete"):
+                return parsed
+    return parsed or {"success": False, "complete": False, "raw_output": output}
+
+
+def _logged_command(
+    bridge: PTBridgeServer,
+    audit: JsonlAuditLogger,
+    label: str,
+    expression: str,
+    timeout: float | None = None,
+) -> object:
+    audit.record("command_dispatch", label=label, javascript=expression)
+    try:
+        result = bridge.execute_json(expression, timeout=timeout)
+    except Exception as exc:
+        audit.record(
+            "command_failed",
+            label=label,
+            error=f"{type(exc).__name__}: {exc}",
+        )
+        raise
+    audit.record("command_result", label=label, result=result)
+    return result
+
+
+def _logged_read(
+    bridge: PTBridgeServer,
+    audit: JsonlAuditLogger,
+    label: str,
+    expression: str,
+    *,
+    timeout: float = 12.0,
+    attempts: int = 2,
+) -> object:
+    last_error: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return _logged_command(
+                bridge,
+                audit,
+                f"{label}_attempt_{attempt}",
+                expression,
+                timeout=timeout,
+            )
+        except ScriptBridgeError as exc:
+            last_error = exc
+    assert last_error is not None
+    raise last_error
+
+
+def command_config_ping_demo(args: argparse.Namespace) -> int:
+    artifacts = PROJECT_ROOT / "artifacts"
+    artifacts.mkdir(parents=True, exist_ok=True)
+    project_path = (artifacts / "config-ping-smoke.pkt").resolve()
+    report_path = (artifacts / "config-ping-smoke.json").resolve()
+    audit_path = (artifacts / "config-ping-audit.jsonl").resolve()
+
+    run_id = f"config-ping-{uuid.uuid4().hex[:12]}"
+    audit = JsonlAuditLogger(audit_path, run_id)
+    bridge = PTBridgeServer(
+        port=args.bridge_port,
+        result_timeout=args.result_timeout,
+    )
+    report: dict[str, object] = {
+        "run_id": run_id,
+        "status": "starting",
+        "project_path": str(project_path),
+        "audit_path": str(audit_path),
+    }
+    audit.record(
+        "run_started",
+        intent={
+            "device1": "PC1",
+            "device2": "PC2",
+            "pc1_ip": "192.168.1.10",
+            "pc2_ip": "192.168.1.11",
+            "mask": "255.255.255.0",
+        },
+    )
+
+    try:
+        bridge.start()
+        audit.record(
+            "bridge_started",
+            url=f"http://127.0.0.1:{bridge.port}",
+        )
+        bridge.wait_for_extension(timeout=args.connect_timeout)
+        audit.record("extension_connected", status=bridge.status())
+
+        _logged_command(bridge, audit, "new_project", new_project_js())
+        topology = _logged_command(
+            bridge, audit, "create_topology", minimal_topology_js()
+        )
+        report["topology"] = topology
+        _logged_command(bridge, audit, "fast_forward", fast_forward_js())
+
+        pc1_ip = _logged_command(
+            bridge,
+            audit,
+            "configure_pc1_ip",
+            configure_host_ip_js(
+                "PC1", "FastEthernet0", "192.168.1.10", "255.255.255.0"
+            ),
+        )
+        pc2_ip = _logged_command(
+            bridge,
+            audit,
+            "configure_pc2_ip",
+            configure_host_ip_js(
+                "PC2", "FastEthernet0", "192.168.1.11", "255.255.255.0"
+            ),
+        )
+        report["pc1_config"] = pc1_ip
+        report["pc2_config"] = pc2_ip
+
+        pc1_readback = _logged_command(
+            bridge,
+            audit,
+            "readback_pc1_ip",
+            host_ip_state_js("PC1", "FastEthernet0"),
+        )
+        pc2_readback = _logged_command(
+            bridge,
+            audit,
+            "readback_pc2_ip",
+            host_ip_state_js("PC2", "FastEthernet0"),
+        )
+        report["pc1_readback"] = pc1_readback
+        report["pc2_readback"] = pc2_readback
+
+        _logged_command(bridge, audit, "fast_forward_after_config", fast_forward_js())
+        time.sleep(1)
+        warmup = _run_ping(
+            bridge,
+            audit,
+            label="ping_warmup",
+            device="PC1",
+            destination="192.168.1.11",
+            timeout=args.ping_timeout,
+        )
+        report["ping_warmup"] = warmup
+        time.sleep(1)
+
+        ping_result = _run_ping(
+            bridge,
+            audit,
+            label="ping_verification",
+            device="PC1",
+            destination="192.168.1.11",
+            timeout=args.ping_timeout,
+        )
+        report["ping"] = ping_result
+        if not ping_result or not ping_result.get("success"):
+            raise ScriptBridgeError(
+                f"Ping verification failed: {ping_result!r}"
+            )
+
+        if project_path.exists():
+            project_path.unlink()
+        _logged_command(
+            bridge,
+            audit,
+            "save_project",
+            save_project_js(project_path),
+        )
+
+        file_state: dict[str, object] = {"exists": False, "size": 0}
+        deadline = time.monotonic() + args.save_timeout
+        while time.monotonic() < deadline:
+            state = _logged_command(
+                bridge,
+                audit,
+                "check_saved_file",
+                file_size_js(project_path),
+            )
+            if isinstance(state, dict):
+                file_state = state
+            if file_state.get("exists") and int(file_state.get("size", 0)) > 0:
+                break
+            time.sleep(0.4)
+        report["saved_file"] = file_state
+        if not file_state.get("exists") or int(file_state.get("size", 0)) <= 0:
+            raise ScriptBridgeError("PT did not save the configured PKT")
+
+        _logged_command(bridge, audit, "new_project_for_reopen", new_project_js())
+        _logged_command(
+            bridge,
+            audit,
+            "reopen_project",
+            open_project_js(project_path),
+        )
+        time.sleep(1)
+        reopened_pc1 = _logged_command(
+            bridge,
+            audit,
+            "reopened_pc1_ip",
+            host_ip_state_js("PC1", "FastEthernet0"),
+        )
+        reopened_pc2 = _logged_command(
+            bridge,
+            audit,
+            "reopened_pc2_ip",
+            host_ip_state_js("PC2", "FastEthernet0"),
+        )
+        report["reopened_pc1"] = reopened_pc1
+        report["reopened_pc2"] = reopened_pc2
+
+        expected = {
+            "pc1_ip": "192.168.1.10",
+            "pc2_ip": "192.168.1.11",
+            "mask": "255.255.255.0",
+            "ping_success": True,
+        }
+        actual = {
+            "pc1_ip": (
+                reopened_pc1.get("ip") if isinstance(reopened_pc1, dict) else None
+            ),
+            "pc2_ip": (
+                reopened_pc2.get("ip") if isinstance(reopened_pc2, dict) else None
+            ),
+            "mask": (
+                reopened_pc1.get("mask")
+                if isinstance(reopened_pc1, dict)
+                else None
+            ),
+            "ping_success": bool(ping_result.get("success")),
+        }
+        passed = actual == expected
+        report["expected"] = expected
+        report["actual"] = actual
+        report["status"] = "passed" if passed else "failed"
+        audit.record(
+            "verification_finished",
+            status=report["status"],
+            expected=expected,
+            actual=actual,
+        )
+        if not passed:
+            raise ScriptBridgeError(
+                f"Post-reopen verification mismatch: expected={expected!r}, "
+                f"actual={actual!r}"
+            )
+    except Exception as exc:
+        report["status"] = "failed"
+        report["error"] = f"{type(exc).__name__}: {exc}"
+        audit.record(
+            "run_failed",
+            status="failed",
+            error=report["error"],
+        )
+        raise
+    finally:
+        bridge.stop()
+        report_path.write_text(
+            json.dumps(report, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+
+    _json_print(report)
+    return 0
+
+
+def command_repair_demo(args: argparse.Namespace) -> int:
+    artifacts = PROJECT_ROOT / "artifacts"
+    artifacts.mkdir(parents=True, exist_ok=True)
+    project_path = (artifacts / "repair-smoke.pkt").resolve()
+    report_path = (artifacts / "repair-smoke.json").resolve()
+    audit_path = (artifacts / "repair-audit.jsonl").resolve()
+
+    expected_pc1 = {
+        "device": "PC1",
+        "port": "FastEthernet0",
+        "ip": "192.168.1.10",
+        "mask": "255.255.255.0",
+    }
+    expected_pc2 = {
+        "device": "PC2",
+        "port": "FastEthernet0",
+        "ip": "192.168.1.20",
+        "mask": "255.255.255.0",
+    }
+    wrong_pc1 = {
+        **expected_pc1,
+        "mask": "255.255.255.252",
+    }
+
+    run_id = f"repair-{uuid.uuid4().hex[:12]}"
+    audit = JsonlAuditLogger(audit_path, run_id)
+    bridge = PTBridgeServer(
+        port=args.bridge_port,
+        result_timeout=args.result_timeout,
+    )
+    report: dict[str, object] = {
+        "run_id": run_id,
+        "status": "starting",
+        "project_path": str(project_path),
+        "audit_path": str(audit_path),
+        "expected": {"pc1": expected_pc1, "pc2": expected_pc2},
+        "injected_fault": {
+            "code": "HOST_MASK_MISMATCH",
+            "device": "PC1",
+            "expected_mask": expected_pc1["mask"],
+            "injected_mask": wrong_pc1["mask"],
+        },
+    }
+    audit.record(
+        "run_started",
+        expected={"pc1": expected_pc1, "pc2": expected_pc2},
+        injected_fault=report["injected_fault"],
+    )
+
+    try:
+        bridge.start()
+        audit.record("bridge_started", url=f"http://127.0.0.1:{bridge.port}")
+        bridge.wait_for_extension(timeout=args.connect_timeout)
+        audit.record("extension_connected", status=bridge.status())
+
+        _logged_command(bridge, audit, "new_project", new_project_js())
+        report["topology"] = _logged_command(
+            bridge, audit, "create_topology", minimal_topology_js()
+        )
+
+        _logged_command(
+            bridge,
+            audit,
+            "configure_pc1_expected",
+            configure_host_ip_js(
+                "PC1",
+                "FastEthernet0",
+                expected_pc1["ip"],
+                expected_pc1["mask"],
+            ),
+        )
+        _logged_command(
+            bridge,
+            audit,
+            "configure_pc2_expected",
+            configure_host_ip_js(
+                "PC2",
+                "FastEthernet0",
+                expected_pc2["ip"],
+                expected_pc2["mask"],
+            ),
+        )
+        _logged_command(bridge, audit, "fast_forward_baseline", fast_forward_js())
+        time.sleep(1)
+
+        _run_ping(
+            bridge,
+            audit,
+            label="baseline_warmup",
+            device="PC1",
+            destination=expected_pc2["ip"],
+            timeout=args.ping_timeout,
+        )
+        baseline = _run_ping(
+            bridge,
+            audit,
+            label="baseline_verification",
+            device="PC1",
+            destination=expected_pc2["ip"],
+            timeout=args.ping_timeout,
+        )
+        report["baseline_ping"] = baseline
+        if not baseline.get("success"):
+            raise ScriptBridgeError(
+                f"Baseline ping did not pass; cannot inject fault: {baseline!r}"
+            )
+
+        _logged_command(
+            bridge,
+            audit,
+            "inject_bad_mask",
+            configure_host_ip_js(
+                "PC1",
+                "FastEthernet0",
+                wrong_pc1["ip"],
+                wrong_pc1["mask"],
+            ),
+        )
+        _logged_command(bridge, audit, "fast_forward_faulted", fast_forward_js())
+        time.sleep(1)
+        failed_ping = _run_ping(
+            bridge,
+            audit,
+            label="faulted_ping",
+            device="PC1",
+            destination=expected_pc2["ip"],
+            timeout=args.ping_timeout,
+        )
+        report["faulted_ping"] = failed_ping
+
+        observed = _logged_command(
+            bridge,
+            audit,
+            "read_faulted_pc1",
+            host_ip_state_js("PC1", "FastEthernet0"),
+        )
+        if not isinstance(observed, dict):
+            raise ScriptBridgeError(f"Invalid PC1 readback: {observed!r}")
+        report["faulted_address"] = observed
+        diagnosis = diagnose_host_address(
+            expected={
+                "device": "PC1",
+                "port": "FastEthernet0",
+                "ip": expected_pc1["ip"],
+                "mask": expected_pc1["mask"],
+            },
+            observed=observed,
+            peer_ip=expected_pc2["ip"],
+        )
+        report["diagnosis"] = diagnosis.to_dict() if diagnosis else None
+        audit.record(
+            "diagnosis_completed",
+            failed_ping=failed_ping,
+            observed=observed,
+            diagnosis=report["diagnosis"],
+        )
+        if diagnosis is None:
+            raise ScriptBridgeError(
+                "Ping failed but no supported deterministic diagnosis matched"
+            )
+
+        repair_supported = diagnosis.code in {
+            "HOST_IP_MISMATCH",
+            "HOST_MASK_MISMATCH",
+        }
+        if not repair_supported:
+            raise ScriptBridgeError(
+                f"Diagnosis {diagnosis.code} has no automatic repair rule"
+            )
+
+        repaired = _logged_command(
+            bridge,
+            audit,
+            "repair_pc1_address",
+            configure_host_ip_js(
+                "PC1",
+                "FastEthernet0",
+                expected_pc1["ip"],
+                expected_pc1["mask"],
+            ),
+        )
+        report["repair_result"] = repaired
+        audit.record(
+            "repair_applied",
+            diagnosis_code=diagnosis.code,
+            device=diagnosis.device,
+            port=diagnosis.port,
+            result=repaired,
+        )
+
+        _logged_command(bridge, audit, "fast_forward_repaired", fast_forward_js())
+        time.sleep(1)
+        final_ping = _run_ping(
+            bridge,
+            audit,
+            label="final_verification",
+            device="PC1",
+            destination=expected_pc2["ip"],
+            timeout=args.ping_timeout,
+        )
+        report["final_ping"] = final_ping
+        if not final_ping.get("success"):
+            raise ScriptBridgeError(
+                f"Repair did not restore connectivity: {final_ping!r}"
+            )
+
+        repaired_pc1 = _logged_command(
+            bridge,
+            audit,
+            "verify_repaired_pc1",
+            host_ip_state_js("PC1", "FastEthernet0"),
+        )
+        report["repaired_pc1"] = repaired_pc1
+        verify_diagnosis = (
+            diagnose_host_address(
+                expected={
+                    "device": "PC1",
+                    "port": "FastEthernet0",
+                    "ip": expected_pc1["ip"],
+                    "mask": expected_pc1["mask"],
+                },
+                observed=repaired_pc1,
+                peer_ip=expected_pc2["ip"],
+            )
+            if isinstance(repaired_pc1, dict)
+            else None
+        )
+        if verify_diagnosis is not None:
+            raise ScriptBridgeError(
+                f"Repair readback still differs: {verify_diagnosis.to_dict()!r}"
+            )
+
+        if project_path.exists():
+            project_path.unlink()
+        _logged_command(
+            bridge,
+            audit,
+            "save_repaired_project",
+            save_project_js(project_path),
+        )
+        file_state: dict[str, object] = {"exists": False, "size": 0}
+        deadline = time.monotonic() + args.save_timeout
+        while time.monotonic() < deadline:
+            state = _logged_command(
+                bridge, audit, "check_repaired_file", file_size_js(project_path)
+            )
+            if isinstance(state, dict):
+                file_state = state
+            if file_state.get("exists") and int(file_state.get("size", 0)) > 0:
+                break
+            time.sleep(0.4)
+        report["saved_file"] = file_state
+        if not file_state.get("exists") or int(file_state.get("size", 0)) <= 0:
+            raise ScriptBridgeError("PT did not save the repaired PKT")
+
+        report["repair_rounds"] = 1
+        report["status"] = "passed"
+        audit.record(
+            "verification_finished",
+            status="passed",
+            repair_rounds=1,
+            diagnosis_code=diagnosis.code,
+            final_ping_success=bool(final_ping.get("success")),
+        )
+    except Exception as exc:
+        report["status"] = "failed"
+        report["error"] = f"{type(exc).__name__}: {exc}"
+        audit.record("run_failed", status="failed", error=report["error"])
+        raise
+    finally:
+        bridge.stop()
+        report_path.write_text(
+            json.dumps(report, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+
+    _json_print(report)
+    return 0
+
+
+CLI_ERROR_RE = re.compile(
+    r"%(?:\s*)(?:Invalid input|Incomplete command|Ambiguous command|"
+    r"Unknown command|Unrecognized command)",
+    re.IGNORECASE,
+)
+
+
+def _assert_cli_output(result: object, label: str) -> str:
+    if not isinstance(result, dict) or not isinstance(result.get("output"), str):
+        raise ScriptBridgeError(f"Invalid {label} result: {result!r}")
+    output = str(result["output"])
+    if CLI_ERROR_RE.search(output):
+        raise ScriptBridgeError(f"{label} reported CLI errors: {output}")
+    return output
+
+
+def _parse_vlan_output(output: str) -> dict[str, object]:
+    vlan10 = None
+    vlan20 = None
+    for line in output.splitlines():
+        if re.match(r"\s*10\s+FINANCE\s+active\b", line, re.IGNORECASE):
+            vlan10 = line.strip()
+        if re.match(r"\s*20\s+GUEST\s+active\b", line, re.IGNORECASE):
+            vlan20 = line.strip()
+    return {
+        "vlan10": vlan10,
+        "vlan20": vlan20,
+        "pc1_in_vlan10": bool(vlan10 and "Fa0/1" in vlan10),
+        "pc2_in_vlan10": bool(vlan10 and "Fa0/2" in vlan10),
+        "pc3_in_vlan20": bool(vlan20 and "Fa0/3" in vlan20),
+    }
+
+
+def _parse_acl_output(output: str) -> dict[str, bool]:
+    normalized = output.lower()
+    return {
+        "deny_pc1": "deny host 192.168.10.10" in normalized,
+        "permit_any": "permit any" in normalized,
+    }
+
+
+def _run_ios_cli(
+    bridge: PTBridgeServer,
+    audit: JsonlAuditLogger,
+    *,
+    label: str,
+    device: str,
+    commands: list[str],
+    timeout: float,
+    prepare_boot_dialog: bool = False,
+) -> dict[str, object]:
+    state = _logged_read(
+        bridge,
+        audit,
+        f"{label}_terminal_state",
+        terminal_state_js(device),
+        timeout=min(timeout, 12.0),
+    )
+    prompt = str(state.get("prompt", ""))
+
+    if prepare_boot_dialog and "initial configuration dialog" in prompt.lower():
+        _logged_command(
+            bridge,
+            audit,
+            f"{label}_dismiss_initial_config",
+            enter_ios_command_js(device, "no"),
+            timeout=timeout,
+        )
+        time.sleep(0.8)
+        state = _logged_read(
+            bridge,
+            audit,
+            f"{label}_terminal_after_initial_config",
+            terminal_state_js(device),
+            timeout=min(timeout, 12.0),
+        )
+        prompt = str(state.get("prompt", ""))
+
+    if prepare_boot_dialog and not prompt:
+        _logged_command(
+            bridge,
+            audit,
+            f"{label}_continue_boot",
+            enter_ios_command_js(device, ""),
+            timeout=timeout,
+        )
+        time.sleep(0.8)
+        state = _logged_read(
+            bridge,
+            audit,
+            f"{label}_terminal_after_boot",
+            terminal_state_js(device),
+            timeout=min(timeout, 12.0),
+        )
+        prompt = str(state.get("prompt", ""))
+
+    if prompt.endswith(">"):
+        _logged_command(
+            bridge,
+            audit,
+            f"{label}_enable",
+            enter_ios_command_js(device, "enable"),
+            timeout=timeout,
+        )
+        time.sleep(0.8)
+        state = _logged_read(
+            bridge,
+            audit,
+            f"{label}_terminal_after_enable",
+            terminal_state_js(device),
+            timeout=min(timeout, 12.0),
+        )
+        prompt = str(state.get("prompt", ""))
+
+    if not prompt.endswith("#"):
+        raise ScriptBridgeError(
+            f"{label} could not enter privileged mode; prompt={prompt!r}"
+        )
+
+    output_parts: list[str] = []
+    prompts: list[dict[str, str]] = []
+    for index, command in enumerate(commands, start=1):
+        dispatch = _logged_command(
+            bridge,
+            audit,
+            f"{label}_{index:02d}_enter",
+            enter_ios_command_js(device, command),
+            timeout=timeout,
+        )
+        if not isinstance(dispatch, dict) or "outputStart" not in dispatch:
+            raise ScriptBridgeError(
+                f"Invalid CLI dispatch for {command!r}: {dispatch!r}"
+            )
+        time.sleep(0.75)
+        readback = _logged_read(
+            bridge,
+            audit,
+            f"{label}_{index:02d}_output",
+            read_command_output_js(device, int(dispatch["outputStart"])),
+            timeout=min(timeout, 12.0),
+        )
+        part = readback.get("output") if isinstance(readback, dict) else None
+        if not isinstance(part, str):
+            raise ScriptBridgeError(
+                f"Invalid CLI readback for {command!r}: {readback!r}"
+            )
+        output_parts.append(part)
+        if CLI_ERROR_RE.search(part):
+            raise ScriptBridgeError(
+                f"{label} command {command!r} reported an error: {part}"
+            )
+        prompts.append(
+            {
+                "command": command,
+                "before": str(dispatch.get("prompt", "")),
+                "after": str(dispatch.get("prompt", "")),
+            }
+        )
+    return {
+        "commands": commands,
+        "output": "".join(output_parts),
+        "prompts": prompts,
+    }
+
+
+def _save_and_wait(
+    bridge: PTBridgeServer,
+    audit: JsonlAuditLogger,
+    project_path: Path,
+    timeout: float,
+) -> dict[str, object]:
+    if project_path.exists():
+        project_path.unlink()
+    _logged_command(
+        bridge, audit, f"save_{project_path.stem}", save_project_js(project_path)
+    )
+    deadline = time.monotonic() + timeout
+    state: dict[str, object] = {"exists": False, "size": 0}
+    while time.monotonic() < deadline:
+        candidate = _logged_command(
+            bridge,
+            audit,
+            f"check_{project_path.stem}",
+            file_size_js(project_path),
+        )
+        if isinstance(candidate, dict):
+            state = candidate
+        if state.get("exists") and int(state.get("size", 0)) > 0:
+            return state
+        time.sleep(0.4)
+    raise ScriptBridgeError(
+        f"PT did not save {project_path}; last state={state!r}"
+    )
+
+
+def command_config_suite_demo(args: argparse.Namespace) -> int:
+    artifacts = PROJECT_ROOT / "artifacts"
+    artifacts.mkdir(parents=True, exist_ok=True)
+    vlan_path = (artifacts / "config-vlan-smoke.pkt").resolve()
+    acl_path = (artifacts / "config-acl-smoke.pkt").resolve()
+    report_path = (artifacts / "config-suite-smoke.json").resolve()
+    audit_path = (artifacts / "config-suite-audit.jsonl").resolve()
+
+    run_id = f"config-suite-{uuid.uuid4().hex[:12]}"
+    audit = JsonlAuditLogger(audit_path, run_id)
+    bridge = PTBridgeServer(
+        port=args.bridge_port,
+        result_timeout=args.result_timeout,
+    )
+    report: dict[str, object] = {
+        "run_id": run_id,
+        "status": "starting",
+        "vlan_project": str(vlan_path),
+        "acl_project": str(acl_path),
+        "audit_path": str(audit_path),
+    }
+    audit.record("run_started", intent="configuration suite")
+
+    try:
+        bridge.start()
+        audit.record("bridge_started", url=f"http://127.0.0.1:{bridge.port}")
+        bridge.wait_for_extension(timeout=args.connect_timeout)
+        audit.record("extension_connected", status=bridge.status())
+
+        # VLAN access assignment and isolation.
+        _logged_command(bridge, audit, "vlan_new_project", new_project_js())
+        vlan_topology = _logged_command(
+            bridge, audit, "vlan_topology", vlan_topology_js()
+        )
+        _logged_command(bridge, audit, "vlan_fast_forward", fast_forward_js())
+        time.sleep(1)
+        vlan_applied = _logged_command(
+            bridge,
+            audit,
+            "vlan_configure_switch_api",
+            configure_switch_vlans_js(
+                "SW1",
+                {10: "FINANCE", 20: "GUEST"},
+                {
+                    "FastEthernet0/1": 10,
+                    "FastEthernet0/2": 10,
+                    "FastEthernet0/3": 20,
+                },
+            ),
+        )
+        vlan_state = _logged_command(
+            bridge,
+            audit,
+            "vlan_state_after_apply",
+            switch_vlan_state_js(
+                "SW1",
+                ["FastEthernet0/1", "FastEthernet0/2", "FastEthernet0/3"],
+            ),
+        )
+
+        _logged_command(
+            bridge,
+            audit,
+            "vlan_configure_pc1",
+            configure_host_ip_js(
+                "PC1", "FastEthernet0", "192.168.10.10", "255.255.255.0"
+            ),
+        )
+        _logged_command(
+            bridge,
+            audit,
+            "vlan_configure_pc2",
+            configure_host_ip_js(
+                "PC2", "FastEthernet0", "192.168.10.11", "255.255.255.0"
+            ),
+        )
+        _logged_command(
+            bridge,
+            audit,
+            "vlan_configure_pc3",
+            configure_host_ip_js(
+                "PC3", "FastEthernet0", "192.168.20.20", "255.255.255.0"
+            ),
+        )
+        _logged_command(bridge, audit, "vlan_fast_forward_after_ip", fast_forward_js())
+        time.sleep(1)
+
+        _run_ping(
+            bridge,
+            audit,
+            label="vlan_pc1_pc2_warmup",
+            device="PC1",
+            destination="192.168.10.11",
+            timeout=args.ping_timeout,
+        )
+        vlan_same = _run_ping(
+            bridge,
+            audit,
+            label="vlan_pc1_pc2_verify",
+            device="PC1",
+            destination="192.168.10.11",
+            timeout=args.ping_timeout,
+        )
+        vlan_cross = _run_ping(
+            bridge,
+            audit,
+            label="vlan_pc1_pc3_isolated",
+            device="PC1",
+            destination="192.168.20.20",
+            timeout=args.ping_timeout,
+        )
+        vlan_ids = {
+            int(vlan["id"]): str(vlan["name"])
+            for vlan in vlan_state.get("vlans", [])
+            if isinstance(vlan, dict) and "id" in vlan
+        }
+        vlan_ports = vlan_state.get("ports", {})
+        vlan_passed = (
+            vlan_ids.get(10) == "FINANCE"
+            and vlan_ids.get(20) == "GUEST"
+            and vlan_ports.get("FastEthernet0/1", {}).get("vlan") == 10
+            and vlan_ports.get("FastEthernet0/2", {}).get("vlan") == 10
+            and vlan_ports.get("FastEthernet0/3", {}).get("vlan") == 20
+            and bool(vlan_same.get("success"))
+            and not bool(vlan_cross.get("success"))
+        )
+        vlan_saved = _save_and_wait(
+            bridge, audit, vlan_path, args.save_timeout
+        )
+        _logged_command(bridge, audit, "vlan_new_for_reopen", new_project_js())
+        _logged_command(
+            bridge, audit, "vlan_reopen", open_project_js(vlan_path)
+        )
+        _logged_command(bridge, audit, "vlan_reopen_fast_forward", fast_forward_js())
+        time.sleep(1)
+        vlan_after_state = _logged_command(
+            bridge,
+            audit,
+            "vlan_state_after_reopen",
+            switch_vlan_state_js(
+                "SW1",
+                ["FastEthernet0/1", "FastEthernet0/2", "FastEthernet0/3"],
+            ),
+        )
+        after_vlan_ids = {
+            int(vlan["id"]): str(vlan["name"])
+            for vlan in vlan_after_state.get("vlans", [])
+            if isinstance(vlan, dict) and "id" in vlan
+        }
+        after_vlan_ports = vlan_after_state.get("ports", {})
+        vlan_passed = vlan_passed and all(
+            (
+                after_vlan_ids.get(10) == "FINANCE",
+                after_vlan_ids.get(20) == "GUEST",
+                after_vlan_ports.get("FastEthernet0/1", {}).get("vlan") == 10,
+                after_vlan_ports.get("FastEthernet0/2", {}).get("vlan") == 10,
+                after_vlan_ports.get("FastEthernet0/3", {}).get("vlan") == 20,
+            )
+        )
+        report["vlan"] = {
+            "status": "passed" if vlan_passed else "failed",
+            "topology": vlan_topology,
+            "generated_commands": vlan_switch_config_commands(),
+            "applied": vlan_applied,
+            "state_after_apply": vlan_state,
+            "same_vlan_ping": vlan_same,
+            "cross_vlan_ping": vlan_cross,
+            "state_after_reopen": vlan_after_state,
+            "saved_file": vlan_saved,
+        }
+        audit.record("vlan_verification_finished", **report["vlan"])
+        if not vlan_passed:
+            raise ScriptBridgeError(f"VLAN verification failed: {report['vlan']!r}")
+
+        # Routed interfaces and ACL enforcement.
+        _logged_command(bridge, audit, "acl_new_project", new_project_js())
+        acl_topology = _logged_command(
+            bridge, audit, "acl_topology", acl_topology_js()
+        )
+        _logged_command(bridge, audit, "acl_fast_forward", fast_forward_js())
+        time.sleep(1)
+        router_applied = _logged_command(
+            bridge,
+            audit,
+            "acl_configure_router_api",
+            configure_router_ipv4_js(
+                "R1",
+                {
+                    "GigabitEthernet0/0": {
+                        "ip": "192.168.10.1",
+                        "mask": "255.255.255.0",
+                    },
+                    "GigabitEthernet0/1": {
+                        "ip": "192.168.20.1",
+                        "mask": "255.255.255.0",
+                    },
+                },
+            ),
+        )
+        router_state = _logged_command(
+            bridge,
+            audit,
+            "acl_router_state_after_apply",
+            router_ipv4_state_js(
+                "R1", ["GigabitEthernet0/0", "GigabitEthernet0/1"]
+            ),
+        )
+
+        _logged_command(
+            bridge,
+            audit,
+            "acl_configure_pc1",
+            configure_host_ip_js(
+                "PC1",
+                "FastEthernet0",
+                "192.168.10.10",
+                "255.255.255.0",
+                "192.168.10.1",
+            ),
+        )
+        _logged_command(
+            bridge,
+            audit,
+            "acl_configure_pc2",
+            configure_host_ip_js(
+                "PC2",
+                "FastEthernet0",
+                "192.168.20.20",
+                "255.255.255.0",
+                "192.168.20.1",
+            ),
+        )
+        _logged_command(
+            bridge, audit, "acl_fast_forward_baseline", fast_forward_js()
+        )
+        time.sleep(1)
+        _run_ping(
+            bridge,
+            audit,
+            label="acl_baseline_warmup",
+            device="PC1",
+            destination="192.168.20.20",
+            timeout=args.ping_timeout,
+        )
+        acl_baseline = _run_ping(
+            bridge,
+            audit,
+            label="acl_baseline_verify",
+            device="PC1",
+            destination="192.168.20.20",
+            timeout=args.ping_timeout,
+        )
+        if not acl_baseline.get("success"):
+            raise ScriptBridgeError(
+                f"Routed baseline ping failed before ACL: {acl_baseline!r}"
+            )
+
+        acl_applied = _logged_command(
+            bridge,
+            audit,
+            "acl_apply_api",
+            configure_acl_js(
+                "R1",
+                "10",
+                ["deny host 192.168.10.10", "permit any"],
+                "GigabitEthernet0/1",
+            ),
+        )
+        acl_state = _logged_command(
+            bridge,
+            audit,
+            "acl_state_after_apply",
+            acl_state_js("R1", "10", "GigabitEthernet0/1"),
+        )
+        _logged_command(bridge, audit, "acl_fast_forward_faulted", fast_forward_js())
+        time.sleep(1)
+        acl_denied = _run_ping(
+            bridge,
+            audit,
+            label="acl_denied_ping",
+            device="PC1",
+            destination="192.168.20.20",
+            timeout=args.ping_timeout,
+        )
+        acl_saved = _save_and_wait(
+            bridge, audit, acl_path, args.save_timeout
+        )
+        _logged_command(bridge, audit, "acl_new_for_reopen", new_project_js())
+        _logged_command(
+            bridge, audit, "acl_reopen", open_project_js(acl_path)
+        )
+        _logged_command(bridge, audit, "acl_reopen_fast_forward", fast_forward_js())
+        time.sleep(1)
+        acl_after_state = _logged_command(
+            bridge,
+            audit,
+            "acl_state_after_reopen",
+            acl_state_js("R1", "10", "GigabitEthernet0/1"),
+        )
+        router_after_state = _logged_command(
+            bridge,
+            audit,
+            "acl_router_state_after_reopen",
+            router_ipv4_state_js(
+                "R1", ["GigabitEthernet0/0", "GigabitEthernet0/1"]
+            ),
+        )
+        acl_rules = " | ".join(
+            str(item) for item in acl_state.get("commands", [])
+        ).lower()
+        acl_after_rules = " | ".join(
+            str(item) for item in acl_after_state.get("commands", [])
+        ).lower()
+        acl_passed = (
+            "deny host 192.168.10.10" in acl_rules
+            and "permit any" in acl_rules
+            and acl_state.get("aclOut") == "10"
+            and "deny host 192.168.10.10" in acl_after_rules
+            and "permit any" in acl_after_rules
+            and acl_after_state.get("aclOut") == "10"
+            and not bool(acl_denied.get("success"))
+        )
+        report["acl"] = {
+            "status": "passed" if acl_passed else "failed",
+            "topology": acl_topology,
+            "generated_router_commands": acl_router_config_commands(),
+            "generated_acl_commands": acl_apply_commands(),
+            "router_applied": router_applied,
+            "router_state": router_state,
+            "acl_applied": acl_applied,
+            "baseline_ping": acl_baseline,
+            "acl_state": acl_state,
+            "denied_ping": acl_denied,
+            "acl_state_after_reopen": acl_after_state,
+            "router_state_after_reopen": router_after_state,
+            "saved_file": acl_saved,
+        }
+        audit.record("acl_verification_finished", **report["acl"])
+        if not acl_passed:
+            raise ScriptBridgeError(f"ACL verification failed: {report['acl']!r}")
+
+        report["status"] = "passed"
+        audit.record(
+            "suite_verification_finished",
+            status="passed",
+            vlan_status="passed",
+            acl_status="passed",
+        )
+    except Exception as exc:
+        report["status"] = "failed"
+        report["error"] = f"{type(exc).__name__}: {exc}"
+        audit.record("run_failed", status="failed", error=report["error"])
+        raise
+    finally:
+        bridge.stop()
+        report_path.write_text(
+            json.dumps(report, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+
+    _json_print(report)
+    return 0
+
+
+def _configure_routed_test_topology(
+    bridge: PTBridgeServer,
+    audit: JsonlAuditLogger,
+    prefix: str,
+) -> dict[str, object]:
+    _logged_command(bridge, audit, f"{prefix}_new_project", new_project_js())
+    topology = _logged_command(
+        bridge,
+        audit,
+        f"{prefix}_topology",
+        routed_two_router_topology_js(),
+    )
+    _logged_command(bridge, audit, f"{prefix}_fast_forward", fast_forward_js())
+    time.sleep(1)
+    _logged_command(
+        bridge,
+        audit,
+        f"{prefix}_r1_interfaces",
+        configure_router_ipv4_js(
+            "R1",
+            {
+                "GigabitEthernet0/0": {
+                    "ip": "172.16.10.1",
+                    "mask": "255.255.255.0",
+                },
+                "GigabitEthernet0/1": {
+                    "ip": "10.0.0.1",
+                    "mask": "255.255.255.252",
+                },
+            },
+        ),
+    )
+    _logged_command(
+        bridge,
+        audit,
+        f"{prefix}_r2_interfaces",
+        configure_router_ipv4_js(
+            "R2",
+            {
+                "GigabitEthernet0/0": {
+                    "ip": "172.16.20.1",
+                    "mask": "255.255.255.0",
+                },
+                "GigabitEthernet0/1": {
+                    "ip": "10.0.0.2",
+                    "mask": "255.255.255.252",
+                },
+            },
+        ),
+    )
+    _logged_command(
+        bridge,
+        audit,
+        f"{prefix}_pc1",
+        configure_host_ip_js(
+            "PC1",
+            "FastEthernet0",
+            "172.16.10.10",
+            "255.255.255.0",
+            "172.16.10.1",
+        ),
+    )
+    _logged_command(
+        bridge,
+        audit,
+        f"{prefix}_pc2",
+        configure_host_ip_js(
+            "PC2",
+            "FastEthernet0",
+            "172.16.20.20",
+            "255.255.255.0",
+            "172.16.20.1",
+        ),
+    )
+    _logged_command(
+        bridge, audit, f"{prefix}_fast_forward_after_ip", fast_forward_js()
+    )
+    time.sleep(1)
+    _run_ios_cli(
+        bridge,
+        audit,
+        label=f"{prefix}_prepare_r1_cli",
+        device="R1",
+        commands=[],
+        timeout=30.0,
+        prepare_boot_dialog=True,
+    )
+    _run_ios_cli(
+        bridge,
+        audit,
+        label=f"{prefix}_prepare_r2_cli",
+        device="R2",
+        commands=[],
+        timeout=30.0,
+        prepare_boot_dialog=True,
+    )
+    return {
+        "topology": topology,
+        "r1": _logged_command(
+            bridge,
+            audit,
+            f"{prefix}_r1_state",
+            router_ipv4_state_js(
+                "R1", ["GigabitEthernet0/0", "GigabitEthernet0/1"]
+            ),
+        ),
+        "r2": _logged_command(
+            bridge,
+            audit,
+            f"{prefix}_r2_state",
+            router_ipv4_state_js(
+                "R2", ["GigabitEthernet0/0", "GigabitEthernet0/1"]
+            ),
+        ),
+    }
+
+
+def _routing_state(
+    bridge: PTBridgeServer,
+    audit: JsonlAuditLogger,
+    label: str,
+    devices: tuple[str, ...] = ("R1", "R2"),
+) -> dict[str, object]:
+    return {
+        device: _logged_command(
+            bridge,
+            audit,
+            f"{label}_{device.lower()}",
+            routing_state_js(device),
+        )
+        for device in devices
+    }
+
+
+def _prepare_reopened_routers(
+    bridge: PTBridgeServer,
+    audit: JsonlAuditLogger,
+    prefix: str,
+) -> None:
+    for device in ("R1", "R2"):
+        _run_ios_cli(
+            bridge,
+            audit,
+            label=f"{prefix}_prepare_{device.lower()}",
+            device=device,
+            commands=[],
+            timeout=30.0,
+            prepare_boot_dialog=True,
+        )
+
+
+def _wait_for_protocol_convergence(
+    bridge: PTBridgeServer,
+    audit: JsonlAuditLogger,
+    prefix: str,
+    *,
+    rounds: int = 3,
+) -> None:
+    for index in range(rounds):
+        _logged_command(
+            bridge,
+            audit,
+            f"{prefix}_fast_forward_{index + 1}",
+            fast_forward_js(),
+        )
+        time.sleep(0.75)
+
+
+def command_routing_suite_demo(args: argparse.Namespace) -> int:
+    artifacts = PROJECT_ROOT / "artifacts"
+    artifacts.mkdir(parents=True, exist_ok=True)
+    static_path = (artifacts / "config-static-routing.pkt").resolve()
+    rip_path = (artifacts / "config-rip-v1-v2.pkt").resolve()
+    ospf_path = (artifacts / "config-ospf.pkt").resolve()
+    report_path = (artifacts / "config-routing-suite.json").resolve()
+    audit_path = (artifacts / "config-routing-audit.jsonl").resolve()
+
+    run_id = f"routing-suite-{uuid.uuid4().hex[:12]}"
+    audit = JsonlAuditLogger(audit_path, run_id)
+    bridge = PTBridgeServer(
+        port=args.bridge_port,
+        result_timeout=args.result_timeout,
+    )
+    report: dict[str, object] = {
+        "run_id": run_id,
+        "status": "starting",
+        "audit_path": str(audit_path),
+        "projects": {
+            "static": str(static_path),
+            "rip": str(rip_path),
+            "ospf": str(ospf_path),
+        },
+    }
+    audit.record("run_started", intent="routing configuration suite")
+
+    try:
+        bridge.start()
+        bridge.wait_for_extension(timeout=args.connect_timeout)
+        audit.record("extension_connected", status=bridge.status())
+
+        static_topology = _configure_routed_test_topology(
+            bridge, audit, "static"
+        )
+        static_r1 = _logged_command(
+            bridge,
+            audit,
+            "static_default_route",
+            configure_static_routes_js(
+                "R1",
+                [
+                    {
+                        "network": "0.0.0.0",
+                        "mask": "0.0.0.0",
+                        "nextHop": "10.0.0.2",
+                        "port": "GigabitEthernet0/1",
+                        "admin_distance": 1,
+                    }
+                ],
+            ),
+        )
+        static_r2 = _logged_command(
+            bridge,
+            audit,
+            "static_return_route",
+            configure_static_routes_js(
+                "R2",
+                [
+                    {
+                        "network": "172.16.10.0",
+                        "mask": "255.255.255.0",
+                        "nextHop": "10.0.0.1",
+                        "port": "GigabitEthernet0/1",
+                        "admin_distance": 1,
+                    }
+                ],
+            ),
+        )
+        _wait_for_protocol_convergence(bridge, audit, "static")
+        static_state = _routing_state(bridge, audit, "static_routes")
+        _run_ping(
+            bridge,
+            audit,
+            label="static_warmup",
+            device="PC1",
+            destination="172.16.20.20",
+            timeout=args.ping_timeout,
+        )
+        static_ping = _run_ping(
+            bridge,
+            audit,
+            label="static_verify",
+            device="PC1",
+            destination="172.16.20.20",
+            timeout=args.ping_timeout,
+        )
+        static_saved = _save_and_wait(
+            bridge, audit, static_path, args.save_timeout
+        )
+        _logged_command(
+            bridge, audit, "static_new_for_reopen", new_project_js()
+        )
+        _logged_command(
+            bridge,
+            audit,
+            "static_reopen",
+            open_project_js(static_path),
+        )
+        _prepare_reopened_routers(bridge, audit, "static_reopen")
+        _wait_for_protocol_convergence(
+            bridge, audit, "static_reopen", rounds=1
+        )
+        static_after = _routing_state(
+            bridge, audit, "static_routes_after_reopen"
+        )
+        _run_ping(
+            bridge,
+            audit,
+            label="static_warmup_after_reopen",
+            device="PC1",
+            destination="172.16.20.20",
+            timeout=args.ping_timeout,
+        )
+        static_ping_after = _run_ping(
+            bridge,
+            audit,
+            label="static_verify_after_reopen",
+            device="PC1",
+            destination="172.16.20.20",
+            timeout=args.ping_timeout,
+        )
+        static_passed = (
+            all(
+                item.get("ok")
+                for item in static_r1.get("added", [])
+                + static_r2.get("added", [])
+            )
+            and bool(static_ping.get("success"))
+            and bool(static_ping_after.get("success"))
+            and any(
+                route.get("network") == "0.0.0.0"
+                and route.get("mask") == "0.0.0.0"
+                for route in static_state["R1"].get("staticRoutes", [])
+            )
+            and any(
+                route.get("network") == "172.16.10.0"
+                for route in static_state["R2"].get("staticRoutes", [])
+            )
+            and any(
+                route.get("network") == "0.0.0.0"
+                for route in static_after["R1"].get("staticRoutes", [])
+            )
+        )
+        report["static"] = {
+            "status": "passed" if static_passed else "failed",
+            "topology": static_topology,
+            "routes": {"R1": static_r1, "R2": static_r2},
+            "state": static_state,
+            "ping": static_ping,
+            "state_after_reopen": static_after,
+            "ping_after_reopen": static_ping_after,
+            "saved_file": static_saved,
+        }
+        audit.record("static_verification_finished", **report["static"])
+        if not static_passed:
+            raise ScriptBridgeError(
+                f"Static routing verification failed: {report['static']!r}"
+            )
+
+        rip_topology = _configure_routed_test_topology(bridge, audit, "rip")
+        rip_v1_r1 = _run_ios_cli(
+            bridge,
+            audit,
+            label="rip_v1_r1",
+            device="R1",
+            commands=rip_config_commands(1, auto_summary=True),
+            timeout=args.cli_timeout,
+            prepare_boot_dialog=True,
+        )
+        rip_v1_r2 = _run_ios_cli(
+            bridge,
+            audit,
+            label="rip_v1_r2",
+            device="R2",
+            commands=rip_config_commands(1, auto_summary=True),
+            timeout=args.cli_timeout,
+            prepare_boot_dialog=True,
+        )
+        _wait_for_protocol_convergence(bridge, audit, "rip_v1")
+        rip_v1_state = _routing_state(bridge, audit, "rip_v1_routes")
+        _run_ping(
+            bridge,
+            audit,
+            label="rip_v1_warmup",
+            device="PC1",
+            destination="172.16.20.20",
+            timeout=args.ping_timeout,
+        )
+        rip_v1_ping = _run_ping(
+            bridge,
+            audit,
+            label="rip_v1_ping",
+            device="PC1",
+            destination="172.16.20.20",
+            timeout=args.ping_timeout,
+        )
+        rip_v1_show = _run_ios_cli(
+            bridge,
+            audit,
+            label="rip_v1_show_config",
+            device="R1",
+            commands=show_rip_config_commands(),
+            timeout=args.cli_timeout,
+        )
+
+        rip_v2_r1 = _run_ios_cli(
+            bridge,
+            audit,
+            label="rip_v2_r1",
+            device="R1",
+            commands=rip_config_commands(2, auto_summary=False),
+            timeout=args.cli_timeout,
+        )
+        rip_v2_r2 = _run_ios_cli(
+            bridge,
+            audit,
+            label="rip_v2_r2",
+            device="R2",
+            commands=rip_config_commands(2, auto_summary=False),
+            timeout=args.cli_timeout,
+        )
+        _wait_for_protocol_convergence(bridge, audit, "rip_v2")
+        rip_v2_state = _routing_state(bridge, audit, "rip_v2_routes")
+        _run_ping(
+            bridge,
+            audit,
+            label="rip_v2_warmup",
+            device="PC1",
+            destination="172.16.20.20",
+            timeout=args.ping_timeout,
+        )
+        rip_v2_ping = _run_ping(
+            bridge,
+            audit,
+            label="rip_v2_ping",
+            device="PC1",
+            destination="172.16.20.20",
+            timeout=args.ping_timeout,
+        )
+        rip_v2_show = _run_ios_cli(
+            bridge,
+            audit,
+            label="rip_v2_show_config",
+            device="R1",
+            commands=show_rip_config_commands(),
+            timeout=args.cli_timeout,
+        )
+        rip_saved = _save_and_wait(bridge, audit, rip_path, args.save_timeout)
+        _logged_command(bridge, audit, "rip_new_for_reopen", new_project_js())
+        _logged_command(bridge, audit, "rip_reopen", open_project_js(rip_path))
+        _prepare_reopened_routers(bridge, audit, "rip_reopen")
+        _wait_for_protocol_convergence(
+            bridge, audit, "rip_reopen", rounds=1
+        )
+        rip_after_state = _routing_state(
+            bridge, audit, "rip_routes_after_reopen"
+        )
+        rip_after_show = _run_ios_cli(
+            bridge,
+            audit,
+            label="rip_show_after_reopen",
+            device="R1",
+            commands=show_rip_config_commands(),
+            timeout=args.cli_timeout,
+            prepare_boot_dialog=True,
+        )
+        _run_ping(
+            bridge,
+            audit,
+            label="rip_warmup_after_reopen",
+            device="PC1",
+            destination="172.16.20.20",
+            timeout=args.ping_timeout,
+        )
+        rip_after_ping = _run_ping(
+            bridge,
+            audit,
+            label="rip_verify_after_reopen",
+            device="PC1",
+            destination="172.16.20.20",
+            timeout=args.ping_timeout,
+        )
+        rip_v2_config = str(rip_v2_show.get("output", "")).lower()
+        rip_after_config = str(rip_after_show.get("output", "")).lower()
+        rip_passed = (
+            "version 1" in str(rip_v1_show.get("output", "")).lower()
+            and "version 2" in rip_v2_config
+            and "no auto-summary" in rip_v2_config
+            and "network 172.16.0.0" in rip_v2_config
+            and bool(rip_v2_ping.get("success"))
+            and "version 2" in rip_after_config
+            and "no auto-summary" in rip_after_config
+            and bool(rip_after_ping.get("success"))
+        )
+        report["rip"] = {
+            "status": "passed" if rip_passed else "failed",
+            "topology": rip_topology,
+            "v1": {
+                "outputs": {"R1": rip_v1_r1, "R2": rip_v1_r2},
+                "state": rip_v1_state,
+                "ping": rip_v1_ping,
+                "show_config": rip_v1_show,
+            },
+            "v2": {
+                "outputs": {"R1": rip_v2_r1, "R2": rip_v2_r2},
+                "state": rip_v2_state,
+                "ping": rip_v2_ping,
+                "show_config": rip_v2_show,
+            },
+            "after_reopen": {
+                "state": rip_after_state,
+                "show_config": rip_after_show,
+                "ping": rip_after_ping,
+            },
+            "saved_file": rip_saved,
+        }
+        audit.record("rip_verification_finished", **report["rip"])
+        if not rip_passed:
+            raise ScriptBridgeError(
+                f"RIP verification failed: {report['rip']!r}"
+            )
+
+        ospf_topology = _configure_routed_test_topology(bridge, audit, "ospf")
+        ospf_r1 = _run_ios_cli(
+            bridge,
+            audit,
+            label="ospf_r1",
+            device="R1",
+            commands=ospf_config_commands(
+                100,
+                networks=(
+                    ("172.16.10.0", "0.0.0.255", "0"),
+                    ("10.0.0.0", "0.0.0.3", "0"),
+                ),
+            ),
+            timeout=args.cli_timeout,
+            prepare_boot_dialog=True,
+        )
+        ospf_r2 = _run_ios_cli(
+            bridge,
+            audit,
+            label="ospf_r2",
+            device="R2",
+            commands=ospf_config_commands(
+                100,
+                networks=(
+                    ("172.16.20.0", "0.0.0.255", "0"),
+                    ("10.0.0.0", "0.0.0.3", "0"),
+                ),
+            ),
+            timeout=args.cli_timeout,
+            prepare_boot_dialog=True,
+        )
+        _wait_for_protocol_convergence(bridge, audit, "ospf", rounds=4)
+        ospf_state = _routing_state(bridge, audit, "ospf_routes")
+        ospf_show = _run_ios_cli(
+            bridge,
+            audit,
+            label="ospf_show_config",
+            device="R1",
+            commands=show_ospf_config_commands(),
+            timeout=args.cli_timeout,
+        )
+        _run_ping(
+            bridge,
+            audit,
+            label="ospf_warmup",
+            device="PC1",
+            destination="172.16.20.20",
+            timeout=args.ping_timeout,
+        )
+        ospf_ping = _run_ping(
+            bridge,
+            audit,
+            label="ospf_ping",
+            device="PC1",
+            destination="172.16.20.20",
+            timeout=args.ping_timeout,
+        )
+        ospf_saved = _save_and_wait(bridge, audit, ospf_path, args.save_timeout)
+        _logged_command(
+            bridge, audit, "ospf_new_for_reopen", new_project_js()
+        )
+        _logged_command(
+            bridge, audit, "ospf_reopen", open_project_js(ospf_path)
+        )
+        _prepare_reopened_routers(bridge, audit, "ospf_reopen")
+        _wait_for_protocol_convergence(
+            bridge, audit, "ospf_reopen", rounds=2
+        )
+        ospf_after_state = _routing_state(
+            bridge, audit, "ospf_routes_after_reopen"
+        )
+        ospf_after_show = _run_ios_cli(
+            bridge,
+            audit,
+            label="ospf_show_after_reopen",
+            device="R1",
+            commands=show_ospf_config_commands(),
+            timeout=args.cli_timeout,
+            prepare_boot_dialog=True,
+        )
+        _run_ping(
+            bridge,
+            audit,
+            label="ospf_warmup_after_reopen",
+            device="PC1",
+            destination="172.16.20.20",
+            timeout=args.ping_timeout,
+        )
+        ospf_after_ping = _run_ping(
+            bridge,
+            audit,
+            label="ospf_verify_after_reopen",
+            device="PC1",
+            destination="172.16.20.20",
+            timeout=args.ping_timeout,
+        )
+        ospf_config = str(ospf_show.get("output", "")).lower()
+        ospf_after_config = str(ospf_after_show.get("output", "")).lower()
+        ospf_passed = (
+            "router ospf 100" in ospf_config
+            and "network 172.16.10.0 0.0.0.255 area 0" in ospf_config
+            and "network 10.0.0.0 0.0.0.3 area 0" in ospf_config
+            and bool(ospf_ping.get("success"))
+            and "router ospf 100" in ospf_after_config
+            and "network 172.16.10.0 0.0.0.255 area 0"
+            in ospf_after_config
+            and bool(ospf_after_ping.get("success"))
+        )
+        report["ospf"] = {
+            "status": "passed" if ospf_passed else "failed",
+            "topology": ospf_topology,
+            "outputs": {"R1": ospf_r1, "R2": ospf_r2},
+            "state": ospf_state,
+            "show_config": ospf_show,
+            "ping": ospf_ping,
+            "after_reopen": {
+                "state": ospf_after_state,
+                "show_config": ospf_after_show,
+                "ping": ospf_after_ping,
+            },
+            "saved_file": ospf_saved,
+        }
+        audit.record("ospf_verification_finished", **report["ospf"])
+        if not ospf_passed:
+            raise ScriptBridgeError(
+                f"OSPF verification failed: {report['ospf']!r}"
+            )
+
+        report["status"] = "passed"
+        audit.record("suite_verification_finished", status="passed")
+    except Exception as exc:
+        report["status"] = "failed"
+        report["error"] = f"{type(exc).__name__}: {exc}"
+        audit.record("run_failed", status="failed", error=report["error"])
+        raise
+    finally:
+        bridge.stop()
+        report_path.write_text(
+            json.dumps(report, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+
+    _json_print(report)
+    return 0
+
+
+def command_trunk_suite_demo(args: argparse.Namespace) -> int:
+    artifacts = PROJECT_ROOT / "artifacts"
+    artifacts.mkdir(parents=True, exist_ok=True)
+    project_path = (artifacts / "config-trunk.pkt").resolve()
+    report_path = (artifacts / "config-trunk-suite.json").resolve()
+    audit_path = (artifacts / "config-trunk-audit.jsonl").resolve()
+    run_id = f"trunk-suite-{uuid.uuid4().hex[:12]}"
+    audit = JsonlAuditLogger(audit_path, run_id)
+    bridge = PTBridgeServer(
+        port=args.bridge_port,
+        result_timeout=args.result_timeout,
+    )
+    report: dict[str, object] = {
+        "run_id": run_id,
+        "status": "starting",
+        "project": str(project_path),
+        "audit_path": str(audit_path),
+    }
+    audit.record("run_started", intent="trunk switching suite")
+
+    try:
+        bridge.start()
+        bridge.wait_for_extension(timeout=args.connect_timeout)
+        _logged_command(bridge, audit, "trunk_new_project", new_project_js())
+        topology = _logged_command(
+            bridge, audit, "trunk_topology", trunk_topology_js()
+        )
+        _logged_command(bridge, audit, "trunk_fast_forward", fast_forward_js())
+        time.sleep(1)
+        sw1_vlans = _logged_command(
+            bridge,
+            audit,
+            "trunk_sw1_vlans",
+            configure_switch_vlans_js(
+                "SW1",
+                {10: "FINANCE", 20: "GUEST"},
+                {"FastEthernet0/1": 10},
+            ),
+        )
+        sw2_vlans = _logged_command(
+            bridge,
+            audit,
+            "trunk_sw2_vlans",
+            configure_switch_vlans_js(
+                "SW2",
+                {10: "FINANCE", 20: "GUEST"},
+                {"FastEthernet0/1": 10, "FastEthernet0/2": 20},
+            ),
+        )
+        sw1_trunk = _logged_command(
+            bridge,
+            audit,
+            "trunk_sw1_port",
+            configure_trunk_port_js("SW1", "GigabitEthernet0/1"),
+        )
+        sw2_trunk = _logged_command(
+            bridge,
+            audit,
+            "trunk_sw2_port",
+            configure_trunk_port_js("SW2", "GigabitEthernet0/1"),
+        )
+        sw1_state = _logged_command(
+            bridge,
+            audit,
+            "trunk_sw1_state",
+            switch_vlan_state_js(
+                "SW1", ["FastEthernet0/1", "GigabitEthernet0/1"]
+            ),
+        )
+        sw2_state = _logged_command(
+            bridge,
+            audit,
+            "trunk_sw2_state",
+            switch_vlan_state_js(
+                "SW2",
+                [
+                    "FastEthernet0/1",
+                    "FastEthernet0/2",
+                    "GigabitEthernet0/1",
+                ],
+            ),
+        )
+        trunk_states = {
+            "SW1": _logged_command(
+                bridge,
+                audit,
+                "trunk_sw1_trunk_state",
+                trunk_port_state_js("SW1", "GigabitEthernet0/1"),
+            ),
+            "SW2": _logged_command(
+                bridge,
+                audit,
+                "trunk_sw2_trunk_state",
+                trunk_port_state_js("SW2", "GigabitEthernet0/1"),
+            ),
+        }
+        for device, ip in (
+            ("PC1", "192.168.10.10"),
+            ("PC2", "192.168.10.11"),
+            ("PC3", "192.168.20.20"),
+        ):
+            _logged_command(
+                bridge,
+                audit,
+                f"trunk_{device.lower()}_ip",
+                configure_host_ip_js(
+                    device, "FastEthernet0", ip, "255.255.255.0"
+                ),
+            )
+        _logged_command(
+            bridge, audit, "trunk_fast_forward_after_ip", fast_forward_js()
+        )
+        time.sleep(1)
+        _run_ping(
+            bridge,
+            audit,
+            label="trunk_same_vlan_warmup",
+            device="PC1",
+            destination="192.168.10.11",
+            timeout=args.ping_timeout,
+        )
+        same_vlan = _run_ping(
+            bridge,
+            audit,
+            label="trunk_same_vlan_verify",
+            device="PC1",
+            destination="192.168.10.11",
+            timeout=args.ping_timeout,
+        )
+        cross_vlan = _run_ping(
+            bridge,
+            audit,
+            label="trunk_cross_vlan_isolated",
+            device="PC1",
+            destination="192.168.20.20",
+            timeout=args.ping_timeout,
+        )
+        sw1_show = _run_ios_cli(
+            bridge,
+            audit,
+            label="trunk_sw1_show",
+            device="SW1",
+            commands=["show interfaces trunk"],
+            timeout=args.cli_timeout,
+            prepare_boot_dialog=True,
+        )
+        saved = _save_and_wait(bridge, audit, project_path, args.save_timeout)
+        _logged_command(bridge, audit, "trunk_new_for_reopen", new_project_js())
+        _logged_command(
+            bridge, audit, "trunk_reopen", open_project_js(project_path)
+        )
+        _logged_command(bridge, audit, "trunk_reopen_fast_forward", fast_forward_js())
+        time.sleep(1)
+        after_states = {
+            "SW1": _logged_command(
+                bridge,
+                audit,
+                "trunk_sw1_state_after_reopen",
+                switch_vlan_state_js(
+                    "SW1", ["FastEthernet0/1", "GigabitEthernet0/1"]
+                ),
+            ),
+            "SW2": _logged_command(
+                bridge,
+                audit,
+                "trunk_sw2_state_after_reopen",
+                switch_vlan_state_js(
+                    "SW2",
+                    [
+                        "FastEthernet0/1",
+                        "FastEthernet0/2",
+                        "GigabitEthernet0/1",
+                    ],
+                ),
+            ),
+        }
+        after_trunks = {
+            "SW1": _logged_command(
+                bridge,
+                audit,
+                "trunk_sw1_port_after_reopen",
+                trunk_port_state_js("SW1", "GigabitEthernet0/1"),
+            ),
+            "SW2": _logged_command(
+                bridge,
+                audit,
+                "trunk_sw2_port_after_reopen",
+                trunk_port_state_js("SW2", "GigabitEthernet0/1"),
+            ),
+        }
+        _run_ping(
+            bridge,
+            audit,
+            label="trunk_same_vlan_warmup_after_reopen",
+            device="PC1",
+            destination="192.168.10.11",
+            timeout=args.ping_timeout,
+        )
+        same_after = _run_ping(
+            bridge,
+            audit,
+            label="trunk_same_vlan_after_reopen",
+            device="PC1",
+            destination="192.168.10.11",
+            timeout=args.ping_timeout,
+        )
+        trunk_passed = (
+            bool(same_vlan.get("success"))
+            and not bool(cross_vlan.get("success"))
+            and bool(same_after.get("success"))
+            and all(not item.get("access") for item in trunk_states.values())
+            and all(not item.get("access") for item in after_trunks.values())
+            and all(item.get("portUp") for item in trunk_states.values())
+            and all(item.get("portUp") for item in after_trunks.values())
+            and "trunking" in str(sw1_show.get("output", "")).lower()
+        )
+        report.update(
+            {
+                "status": "passed" if trunk_passed else "failed",
+                "topology": topology,
+                "generated_commands": {
+                    "SW1": trunk_switch_config_commands(
+                        {"FastEthernet0/1": 10}
+                    ),
+                    "SW2": trunk_switch_config_commands(
+                        {
+                            "FastEthernet0/1": 10,
+                            "FastEthernet0/2": 20,
+                        }
+                    ),
+                },
+                "applied": {
+                    "SW1": sw1_vlans,
+                    "SW2": sw2_vlans,
+                    "trunks": {"SW1": sw1_trunk, "SW2": sw2_trunk},
+                },
+                "state": {
+                    "SW1": sw1_state,
+                    "SW2": sw2_state,
+                    "trunks": trunk_states,
+                },
+                "same_vlan_ping": same_vlan,
+                "cross_vlan_ping": cross_vlan,
+                "show_trunk": sw1_show,
+                "state_after_reopen": after_states,
+                "trunks_after_reopen": after_trunks,
+                "same_vlan_ping_after_reopen": same_after,
+                "saved_file": saved,
+            }
+        )
+        audit.record("trunk_verification_finished", **report)
+        if not trunk_passed:
+            raise ScriptBridgeError(f"Trunk verification failed: {report!r}")
+    except Exception as exc:
+        report["status"] = "failed"
+        report["error"] = f"{type(exc).__name__}: {exc}"
+        audit.record("run_failed", status="failed", error=report["error"])
+        raise
+    finally:
+        bridge.stop()
+        report_path.write_text(
+            json.dumps(report, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+
+    _json_print(report)
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Packet Tracer backend bootstrap for the LLM PT project"
+    )
+    parser.add_argument(
+        "--pt-root",
+        help="Packet Tracer installation directory; defaults to BONUS_PT_ROOT",
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    doctor = subparsers.add_parser("doctor", help="Validate local paths and config")
+    doctor.set_defaults(func=command_doctor)
+
+    launch = subparsers.add_parser(
+        "launch-gui", help="Launch Packet Tracer with the Script Module workflow"
+    )
+    launch.set_defaults(func=command_launch_gui)
+
+    bridge = subparsers.add_parser(
+        "script-bridge", help="Run the local bridge for the PT Script Module"
+    )
+    bridge.add_argument("--bridge-port", type=int, default=54321)
+    bridge.add_argument("--result-timeout", type=float, default=30.0)
+    bridge.set_defaults(func=command_script_bridge)
+
+    script_demo = subparsers.add_parser(
+        "script-demo",
+        help="Run the Script Engine create/save/reopen smoke test",
+    )
+    script_demo.add_argument("--bridge-port", type=int, default=54321)
+    script_demo.add_argument("--result-timeout", type=float, default=30.0)
+    script_demo.add_argument("--connect-timeout", type=float, default=90.0)
+    script_demo.add_argument("--save-timeout", type=float, default=20.0)
+    script_demo.set_defaults(func=command_script_demo)
+
+    config_ping = subparsers.add_parser(
+        "config-ping-demo",
+        help="Configure host IPs, run ping verification, and write an audit log",
+    )
+    config_ping.add_argument("--bridge-port", type=int, default=54321)
+    config_ping.add_argument("--result-timeout", type=float, default=30.0)
+    config_ping.add_argument("--connect-timeout", type=float, default=90.0)
+    config_ping.add_argument("--ping-timeout", type=float, default=15.0)
+    config_ping.add_argument("--save-timeout", type=float, default=20.0)
+    config_ping.set_defaults(func=command_config_ping_demo)
+
+    repair_demo = subparsers.add_parser(
+        "repair-demo",
+        help="Inject a host mask fault, diagnose it, repair it, and verify",
+    )
+    repair_demo.add_argument("--bridge-port", type=int, default=54321)
+    repair_demo.add_argument("--result-timeout", type=float, default=30.0)
+    repair_demo.add_argument("--connect-timeout", type=float, default=90.0)
+    repair_demo.add_argument("--ping-timeout", type=float, default=20.0)
+    repair_demo.add_argument("--save-timeout", type=float, default=20.0)
+    repair_demo.set_defaults(func=command_repair_demo)
+
+    config_suite = subparsers.add_parser(
+        "config-suite-demo",
+        help="Test VLAN isolation and router ACL configuration end to end",
+    )
+    config_suite.add_argument("--bridge-port", type=int, default=54321)
+    config_suite.add_argument("--result-timeout", type=float, default=30.0)
+    config_suite.add_argument("--connect-timeout", type=float, default=90.0)
+    config_suite.add_argument("--cli-timeout", type=float, default=45.0)
+    config_suite.add_argument("--ping-timeout", type=float, default=20.0)
+    config_suite.add_argument("--save-timeout", type=float, default=20.0)
+    config_suite.set_defaults(func=command_config_suite_demo)
+
+    routing_suite = subparsers.add_parser(
+        "routing-suite-demo",
+        help="Test static/default, RIP v1/v2, and OSPF configuration",
+    )
+    routing_suite.add_argument("--bridge-port", type=int, default=54321)
+    routing_suite.add_argument("--result-timeout", type=float, default=30.0)
+    routing_suite.add_argument("--connect-timeout", type=float, default=90.0)
+    routing_suite.add_argument("--cli-timeout", type=float, default=45.0)
+    routing_suite.add_argument("--ping-timeout", type=float, default=20.0)
+    routing_suite.add_argument("--save-timeout", type=float, default=20.0)
+    routing_suite.set_defaults(func=command_routing_suite_demo)
+
+    trunk_suite = subparsers.add_parser(
+        "trunk-suite-demo",
+        help="Test VLAN access ports and an inter-switch trunk",
+    )
+    trunk_suite.add_argument("--bridge-port", type=int, default=54321)
+    trunk_suite.add_argument("--result-timeout", type=float, default=30.0)
+    trunk_suite.add_argument("--connect-timeout", type=float, default=90.0)
+    trunk_suite.add_argument("--cli-timeout", type=float, default=45.0)
+    trunk_suite.add_argument("--ping-timeout", type=float, default=20.0)
+    trunk_suite.add_argument("--save-timeout", type=float, default=20.0)
+    trunk_suite.set_defaults(func=command_trunk_suite_demo)
+
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    try:
+        return int(args.func(args))
+    except (
+        ScriptBridgeError,
+        OSError,
+        RuntimeError,
+        subprocess.TimeoutExpired,
+    ) as exc:
+        print(f"ERROR: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+
