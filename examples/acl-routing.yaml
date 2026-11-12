@@ -5,9 +5,6 @@ devices:
   - id: r1
     type: router
     model: "2911"
-  - id: sw1
-    type: switch
-    model: 2960-24TT
   - id: pc1
     type: pc
     model: PC-PT
@@ -22,11 +19,9 @@ links:
   - from: pc1:FastEthernet0
     to: r1:GigabitEthernet0/0
   - from: pc2:FastEthernet0
-    to: sw1:FastEthernet0/1
+    to: r1:GigabitEthernet0/1
   - from: pc3:FastEthernet0
-    to: sw1:FastEthernet0/2
-  - from: r1:GigabitEthernet0/1
-    to: sw1:GigabitEthernet0/1
+    to: r1:GigabitEthernet0/2
 
 ipv4:
   - device: r1
@@ -35,6 +30,9 @@ ipv4:
   - device: r1
     port: GigabitEthernet0/1
     address: 192.168.20.1/24
+  - device: r1
+    port: GigabitEthernet0/2
+    address: 192.168.30.1/24
   - device: pc1
     port: FastEthernet0
     address: 192.168.10.10/24
@@ -45,8 +43,8 @@ ipv4:
     gateway: 192.168.20.1
   - device: pc3
     port: FastEthernet0
-    address: 192.168.20.30/24
-    gateway: 192.168.20.1
+    address: 192.168.30.30/24
+    gateway: 192.168.30.1
 
 acls:
   - id: "10"
