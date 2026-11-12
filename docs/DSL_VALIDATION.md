@@ -60,6 +60,13 @@ template and tests; the system does not execute arbitrary LLM command output.
 - `examples/campus-vlan.yaml`: VLAN access ports, inter-switch trunk, and
   expected connectivity.
 - `examples/ospf-routing.yaml`: routed IPv4 interfaces and OSPF area 0.
+- `examples/acl-routing.yaml`: one denied source and one permitted source
+  through the same router ACL.
+- `examples/static-routing.yaml`: a default route and a return static route
+  between two sites.
+- `examples/ripv1-routing.yaml`: expected RIPv1 auto-summary limitation.
+- `examples/ripv2-routing.yaml`: RIPv2 with auto-summary disabled and verified
+  VLSM routing.
 
 Run:
 
@@ -69,6 +76,10 @@ python -m pt_agent validate-dsl examples\ospf-routing.yaml
 python -m pt_agent compile-dsl examples\campus-vlan.yaml
 python -m pt_agent deploy-dsl examples\campus-vlan.yaml
 python -m pt_agent deploy-dsl examples\ospf-routing.yaml
+python -m pt_agent deploy-dsl examples\acl-routing.yaml
+python -m pt_agent deploy-dsl examples\static-routing.yaml
+python -m pt_agent deploy-dsl examples\ripv1-routing.yaml
+python -m pt_agent deploy-dsl examples\ripv2-routing.yaml
 ```
 
 ## Deployment Flow
@@ -89,6 +100,8 @@ python -m pt_agent deploy-dsl examples\ospf-routing.yaml
 
 The campus example verifies VLAN/Trunk isolation. The OSPF example verifies
 cross-subnet routing through YAML-generated interface and OSPF commands.
+All six examples validate, compile, deploy to local Packet Tracer, save,
+reopen, and repeat their positive or negative connectivity assertions.
 
 ## Dependency Setup
 
