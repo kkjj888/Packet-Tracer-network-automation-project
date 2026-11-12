@@ -159,6 +159,7 @@ class _SemanticChecker:
         self._check_static_routes()
         self._check_rip()
         self._check_ospf()
+        self._check_advanced_routing()
         self._check_acls()
         self._check_acl_bindings()
         self._check_platform()
@@ -717,6 +718,64 @@ class _SemanticChecker:
                     f"{network} does not contain an interface on {device_id}",
                 )
 
+    def _check_advanced_routing(self) -> None:
+        routing = self.document.get("routing")
+        if not isinstance(routing, dict):
+            return
+        tunnels = _as_list(routing.get("tunnels"))
+        for index, item in enumerate(tunnels):
+            if not isinstance(item, dict):
+                continue
+            path = f"routing.tunnels[{index}]"
+            if not self._router_device(item.get("device"), f"{path}.device"):
+                continue
+            try:
+                ipaddress.ip_interface(str(item.get("address", "")))
+                ipaddress.ip_address(str(item.get("destination", "")))
+            except ValueError as exc:
+                self.error("INVALID_GRE_TUNNEL", path, str(exc))
+
+        bgp = routing.get("bgp")
+        if not isinstance(bgp, dict):
+            return
+        for index, item in enumerate(_as_list(bgp.get("devices"))):
+            if not isinstance(item, dict):
+                continue
+            path = f"routing.bgp.devices[{index}]"
+            if not self._router_device(item.get("device"), f"{path}.device"):
+                continue
+            local_as = item.get("local_as")
+            if not isinstance(local_as, int) or not 1 <= local_as <= 4294967295:
+                self.error(
+                    "INVALID_BGP_AS",
+                    f"{path}.local_as",
+                    "local AS must be 1-4294967295",
+                )
+            for neighbor_index, neighbor in enumerate(
+                _as_list(item.get("neighbors"))
+            ):
+                if not isinstance(neighbor, dict):
+                    continue
+                try:
+                    address = ipaddress.ip_address(
+                        str(neighbor.get("address", ""))
+                    )
+                except ValueError as exc:
+                    self.error(
+                        "INVALID_BGP_NEIGHBOR",
+                        f"{path}.neighbors[{neighbor_index}].address",
+                        str(exc),
+                    )
+                    continue
+                if not self._next_hop_reachable(
+                    str(item.get("device")), address
+                ):
+                    self.error(
+                        "BGP_NEIGHBOR_UNREACHABLE",
+                        f"{path}.neighbors[{neighbor_index}].address",
+                        f"{address} is not inside a connected subnet",
+                    )
+
     def _network_reachable(
         self, device_id: str, network: ipaddress.IPv4Network
     ) -> bool:
@@ -1066,6 +1125,9 @@ _ALLOWED_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^hostname [A-Za-z][A-Za-z0-9_-]{0,31}$", re.I),
     re.compile(r"^interface [A-Za-z0-9/._-]+$", re.I),
     re.compile(r"^no shutdown$", re.I),
+    re.compile(r"^mtu \d{3,4}$", re.I),
+    re.compile(r"^tunnel source [A-Za-z0-9/._-]+$", re.I),
+    re.compile(r"^tunnel destination (?:\d{1,3}\.){3}\d{1,3}$", re.I),
     re.compile(r"^encapsulation dot1Q \d{1,4}$", re.I),
     re.compile(r"^ip address (?:\d{1,3}\.){3}\d{1,3} (?:\d{1,3}\.){3}\d{1,3}$", re.I),
     re.compile(r"^ip routing$", re.I),
@@ -1101,7 +1163,28 @@ _ALLOWED_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^switchport trunk allowed vlan (?:all|\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*)$", re.I),
     re.compile(r"^access-list [A-Za-z0-9_-]+ (?:permit|deny) .+$", re.I),
     re.compile(r"^ip access-group [A-Za-z0-9_-]+ (?:in|out)$", re.I),
-    re.compile(r"^router (?:rip|ospf(?: \d{1,5})?)$", re.I),
+    re.compile(r"^router (?:rip|ospf(?: \d{1,5})?|bgp \d{1,10})$", re.I),
+    re.compile(r"^router-id (?:\d{1,3}\.){3}\d{1,3}$", re.I),
+    re.compile(r"^bgp router-id (?:\d{1,3}\.){3}\d{1,3}$", re.I),
+    re.compile(r"^bgp log-neighbor-changes$", re.I),
+    re.compile(r"^no synchronization$", re.I),
+    re.compile(r"^log-adjacency-changes$", re.I),
+    re.compile(r"^passive-interface [A-Za-z0-9/._-]+$", re.I),
+    re.compile(
+        r"^area (?:0|[1-9]\d*) range "
+        r"(?:\d{1,3}\.){3}\d{1,3} (?:\d{1,3}\.){3}\d{1,3}$",
+        re.I,
+    ),
+    re.compile(r"^default-information originate$", re.I),
+    re.compile(
+        r"^neighbor (?:\d{1,3}\.){3}\d{1,3} remote-as \d{1,10}$",
+        re.I,
+    ),
+    re.compile(
+        r"^network (?:\d{1,3}\.){3}\d{1,3} "
+        r"mask (?:\d{1,3}\.){3}\d{1,3}$",
+        re.I,
+    ),
     re.compile(r"^version [12]$", re.I),
     re.compile(r"^(?:no )?auto-summary$", re.I),
     re.compile(r"^network (?:\d{1,3}\.){3}\d{1,3}$", re.I),

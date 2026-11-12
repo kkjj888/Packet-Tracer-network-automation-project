@@ -12,7 +12,9 @@ from .compiler.acl import (
     compile_acl_config,
 )
 from .compiler.base import CommandPlan
+from .compiler.bgp import BgpConfig, BgpNeighbor, compile_bgp_config
 from .compiler.dhcp import DhcpPool, compile_dhcp_config
+from .compiler.gre import GreTunnel, compile_gre_tunnel
 from .compiler.interface import (
     RouterInterface,
     RouterSubinterface,
@@ -287,7 +289,9 @@ def compile_network_dsl(
             *_compile_acl_plans(document, device_types),
             *_compile_static_plans(document, device_types),
             *_compile_rip_plans(document, device_types),
+            *_compile_tunnel_plans(document, device_types),
             *_compile_ospf_plans(document, device_types),
+            *_compile_bgp_plans(document, device_types),
             *_compile_management_plans(document, device_types),
         ]
     )
@@ -730,6 +734,77 @@ def _compile_static_plans(
     ]
 
 
+def _compile_tunnel_plans(
+    document: Mapping[str, object],
+    device_types: Mapping[str, str],
+) -> list[CommandPlan]:
+    routing = document.get("routing")
+    if not isinstance(routing, dict):
+        return []
+    grouped: dict[str, list[GreTunnel]] = {}
+    for item in _as_list(routing.get("tunnels")):
+        if not isinstance(item, dict):
+            continue
+        device = str(item["device"])
+        if device_types.get(device) != "router":
+            raise DslCompileError(f"GRE device {device} is not a router")
+        grouped.setdefault(device, []).append(
+            GreTunnel(
+                str(item["interface"]),
+                str(item["address"]),
+                str(item["source"]),
+                str(item["destination"]),
+                int(item.get("mtu", 1476)),
+            )
+        )
+    return [
+        compile_gre_tunnel(device, tunnels)
+        for device, tunnels in grouped.items()
+    ]
+
+
+def _compile_bgp_plans(
+    document: Mapping[str, object],
+    device_types: Mapping[str, str],
+) -> list[CommandPlan]:
+    routing = document.get("routing")
+    if not isinstance(routing, dict) or not isinstance(routing.get("bgp"), dict):
+        return []
+    plans: list[CommandPlan] = []
+    for item in _as_list(routing["bgp"].get("devices")):
+        if not isinstance(item, dict):
+            continue
+        device = str(item["device"])
+        if device_types.get(device) != "router":
+            raise DslCompileError(f"BGP device {device} is not a router")
+        plans.append(
+            compile_bgp_config(
+                device,
+                BgpConfig(
+                    int(item["local_as"]),
+                    (
+                        str(item["router_id"])
+                        if item.get("router_id")
+                        else None
+                    ),
+                    tuple(
+                        BgpNeighbor(
+                            str(neighbor["address"]),
+                            int(neighbor["remote_as"]),
+                        )
+                        for neighbor in _as_list(item.get("neighbors"))
+                        if isinstance(neighbor, dict)
+                    ),
+                    tuple(
+                        str(network)
+                        for network in _as_list(item.get("networks"))
+                    ),
+                ),
+            )
+        )
+    return plans
+
+
 def _compile_rip_plans(
     document: Mapping[str, object],
     device_types: Mapping[str, str],
@@ -774,6 +849,18 @@ def _compile_ospf_plans(
         grouped.setdefault(device, []).append(
             OspfNetwork(str(item["network"]), int(item["area"]))
         )
+    settings = {
+        str(item["device"]): item
+        for item in _as_list(ospf.get("settings"))
+        if isinstance(item, dict) and item.get("device")
+    }
+    area_ranges: dict[str, list[tuple[int, str]]] = {}
+    for item in _as_list(ospf.get("area_ranges")):
+        if not isinstance(item, dict):
+            continue
+        area_ranges.setdefault(str(item["device"]), []).append(
+            (int(item["area"]), str(item["network"]))
+        )
     plans: list[CommandPlan] = []
     for device in _as_list(ospf.get("devices")):
         device_id = str(device)
@@ -787,6 +874,36 @@ def _compile_ospf_plans(
                 device_id,
                 int(ospf["process_id"]),
                 networks,
+                router_id=(
+                    str(settings.get(device_id, {}).get("router_id"))
+                    if settings.get(device_id, {}).get("router_id")
+                    else (
+                        str(ospf["router_id"])
+                        if ospf.get("router_id")
+                        else None
+                    )
+                ),
+                passive_interfaces=tuple(
+                    str(value)
+                    for value in _as_list(
+                        settings.get(device_id, {}).get("passive_interfaces")
+                    )
+                ),
+                point_to_point_interfaces=tuple(
+                    str(value)
+                    for value in _as_list(
+                        settings.get(device_id, {}).get(
+                            "point_to_point_interfaces"
+                        )
+                    )
+                ),
+                default_information_originate=bool(
+                    settings.get(device_id, {}).get(
+                        "default_information_originate",
+                        ospf.get("default_information_originate", False),
+                    )
+                ),
+                area_ranges=tuple(area_ranges.get(device_id, [])),
             )
         )
     return plans

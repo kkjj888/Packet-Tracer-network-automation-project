@@ -592,6 +592,41 @@
         "default_information_originate": {
           "type": "boolean"
         },
+        "settings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["device"],
+            "properties": {
+              "device": {
+                "$ref": "#/$defs/identifier"
+              },
+              "router_id": {
+                "$ref": "#/$defs/ipv4"
+              },
+              "passive_interfaces": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "point_to_point_interfaces": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "default_information_originate": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
         "devices": {
           "type": "array",
           "minItems": 1,
