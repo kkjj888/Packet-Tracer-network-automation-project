@@ -595,7 +595,11 @@ def _compile_platform_plans(
                 int(item.get("priority", 100)),
                 bool(item.get("preempt", True)),
                 str(item["track_port"]) if item.get("track_port") else None,
-                int(item.get("track_decrement", 10)),
+                (
+                    int(item["track_decrement"])
+                    if item.get("track_decrement") is not None
+                    else None
+                ),
             )
         )
     plans.extend(

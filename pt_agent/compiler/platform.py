@@ -62,7 +62,7 @@ class HsrpGroup:
     priority: int = 100
     preempt: bool = True
     track_port: str | None = None
-    track_decrement: int = 10
+    track_decrement: int | None = None
 
     def rendered(self) -> list[str]:
         if not isinstance(self.vlan, int) or not 1 <= self.vlan <= 4094:
@@ -85,15 +85,16 @@ class HsrpGroup:
             commands.append(f"standby {self.group} preempt")
         if self.track_port:
             port = require_port(self.track_port, "HSRP tracked port")
-            if not isinstance(self.track_decrement, int) or not (
-                1 <= self.track_decrement <= 255
-            ):
-                raise CommandCompileError(
-                    "HSRP track decrement must be 1-255"
-                )
-            commands.append(
-                f"standby {self.group} track {port} {self.track_decrement}"
-            )
+            command = f"standby {self.group} track {port}"
+            if self.track_decrement is not None:
+                if not isinstance(self.track_decrement, int) or not (
+                    1 <= self.track_decrement <= 255
+                ):
+                    raise CommandCompileError(
+                        "HSRP track decrement must be 1-255"
+                    )
+                command += f" {self.track_decrement}"
+            commands.append(command)
         return commands
 
 

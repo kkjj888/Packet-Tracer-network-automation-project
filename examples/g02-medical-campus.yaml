@@ -552,7 +552,6 @@ hsrp:
     virtual_ip: 10.22.0.158
     priority: 110
     track_port: FastEthernet0/1
-    track_decrement: 20
   - device: G02-HQ-COREB
     vlan: 201
     group: 201
@@ -564,7 +563,6 @@ hsrp:
     virtual_ip: 10.22.0.62
     priority: 110
     track_port: FastEthernet0/1
-    track_decrement: 20
   - device: G02-HQ-COREB
     vlan: 202
     group: 202
@@ -576,7 +574,6 @@ hsrp:
     virtual_ip: 10.22.0.174
     priority: 110
     track_port: FastEthernet0/1
-    track_decrement: 20
   - device: G02-HQ-COREB
     vlan: 205
     group: 205
@@ -588,7 +585,6 @@ hsrp:
     virtual_ip: 10.22.0.126
     priority: 110
     track_port: FastEthernet0/1
-    track_decrement: 20
   - device: G02-HQ-COREB
     vlan: 206
     group: 206
@@ -600,7 +596,6 @@ hsrp:
     virtual_ip: 10.22.0.190
     priority: 110
     track_port: FastEthernet0/1
-    track_decrement: 20
   - device: G02-HQ-COREB
     vlan: 207
     group: 207
@@ -612,7 +607,6 @@ hsrp:
     virtual_ip: 10.22.0.206
     priority: 110
     track_port: FastEthernet0/1
-    track_decrement: 20
   - device: G02-HQ-COREB
     vlan: 208
     group: 208

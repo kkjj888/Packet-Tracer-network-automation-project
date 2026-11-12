@@ -1212,7 +1212,7 @@ _ALLOWED_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^ip ospf network point-to-point$", re.I),
     re.compile(
         r"^standby \d{1,3} (?:ip (?:\d{1,3}\.){3}\d{1,3}|"
-        r"priority \d{1,3}|preempt|track [A-Za-z0-9/._-]+ \d{1,3})$",
+        r"priority \d{1,3}|preempt|track [A-Za-z0-9/._-]+(?: \d{1,3})?)$",
         re.I,
     ),
     re.compile(
