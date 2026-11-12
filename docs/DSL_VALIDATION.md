@@ -70,6 +70,9 @@ template and tests; the system does not execute arbitrary LLM command output.
   connectivity to a static server.
 - `examples/nat-pat.yaml`: private-to-public PAT, default route, translation
   table evidence, and save/reopen verification.
+- `examples/floating-static-failover.yaml`: primary and backup default routes
+  with administrative distance, primary-link failure injection, and recovery
+  through the backup path.
 - `examples/ripv1-routing.yaml`: expected RIPv1 auto-summary limitation.
 - `examples/ripv2-routing.yaml`: RIPv2 with auto-summary disabled and verified
   VLSM routing.
@@ -87,6 +90,7 @@ python -m pt_agent deploy-dsl examples\acl-routing.yaml
 python -m pt_agent deploy-dsl examples\static-routing.yaml
 python -m pt_agent deploy-dsl examples\dhcp-lan.yaml
 python -m pt_agent deploy-dsl examples\nat-pat.yaml
+python -m pt_agent deploy-dsl examples\floating-static-failover.yaml
 python -m pt_agent deploy-dsl examples\ripv1-routing.yaml
 python -m pt_agent deploy-dsl examples\ripv2-routing.yaml
 ```
