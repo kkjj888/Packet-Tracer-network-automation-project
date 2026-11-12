@@ -150,6 +150,7 @@ class _SemanticChecker:
         self._check_ipv4()
         self._check_vlans()
         self._check_dhcp()
+        self._check_nat()
         self._check_static_routes()
         self._check_rip()
         self._check_ospf()
@@ -469,6 +470,48 @@ class _SemanticChecker:
                         f"{route.get('device')}"
                     ),
                 )
+
+    def _check_nat(self) -> None:
+        nat = self.document.get("nat")
+        if not isinstance(nat, dict):
+            return
+        for index, item in enumerate(_as_list(nat.get("pat"))):
+            if not isinstance(item, dict):
+                continue
+            path = f"nat.pat[{index}]"
+            device_id = str(item.get("device", ""))
+            if not self._router_device(device_id, f"{path}.device"):
+                continue
+            try:
+                source = ipaddress.ip_network(
+                    str(item.get("source_network", "")),
+                    strict=True,
+                )
+            except ValueError as exc:
+                self.error("INVALID_NAT_SOURCE", f"{path}.source_network", str(exc))
+                continue
+            if not self._network_reachable(device_id, source):
+                self.error(
+                    "NAT_SOURCE_NOT_CONNECTED",
+                    f"{path}.source_network",
+                    f"{source} has no interface on {device_id}",
+                )
+            for field in ("inside_interfaces", "outside_interface"):
+                values = _as_list(item.get(field))
+                if field == "outside_interface":
+                    values = [item.get(field)]
+                for value in values:
+                    port = str(value or "")
+                    if not any(
+                        str(entry.get("device")) == device_id
+                        and str(entry.get("port")) == port
+                        for entry in self.ipv4
+                    ):
+                        self.error(
+                            "NAT_INTERFACE_NOT_CONFIGURED",
+                            f"{path}.{field}",
+                            f"{device_id}:{port} has no IPv4 configuration",
+                        )
 
     def _check_dhcp(self) -> None:
         dhcp = self.document.get("dhcp")
@@ -828,6 +871,12 @@ _ALLOWED_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(
         r"^dns-server (?:\d{1,3}\.){3}\d{1,3}"
         r"(?: (?:\d{1,3}\.){3}\d{1,3})*$",
+        re.I,
+    ),
+    re.compile(r"^ip nat (?:inside|outside)$", re.I),
+    re.compile(
+        r"^ip nat inside source list \d{1,2} "
+        r"interface [A-Za-z0-9/._-]+ overload$",
         re.I,
     ),
     re.compile(r"^show [A-Za-z0-9/|._ -]+$", re.I),

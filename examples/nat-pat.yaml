@@ -1,0 +1,68 @@
+version: 1
+project: nat-pat-internet-access
+
+devices:
+  - id: r1
+    type: router
+    model: "2911"
+  - id: r2
+    type: router
+    model: "2911"
+  - id: pc1
+    type: pc
+    model: PC-PT
+  - id: server1
+    type: server
+    model: Server-PT
+
+links:
+  - from: pc1:FastEthernet0
+    to: r1:GigabitEthernet0/0
+  - from: r1:GigabitEthernet0/1
+    to: r2:GigabitEthernet0/1
+  - from: r2:GigabitEthernet0/0
+    to: server1:FastEthernet0
+
+ipv4:
+  - device: r1
+    port: GigabitEthernet0/0
+    address: 192.168.0.254/24
+  - device: r1
+    port: GigabitEthernet0/1
+    address: 203.0.113.253/30
+  - device: r2
+    port: GigabitEthernet0/1
+    address: 203.0.113.254/30
+  - device: r2
+    port: GigabitEthernet0/0
+    address: 198.51.100.1/24
+  - device: pc1
+    port: FastEthernet0
+    address: 192.168.0.1/24
+    gateway: 192.168.0.254
+  - device: server1
+    port: FastEthernet0
+    address: 198.51.100.10/24
+    gateway: 198.51.100.1
+
+routing:
+  static:
+    - device: r1
+      network: 0.0.0.0/0
+      next_hop: 203.0.113.254
+      interface: GigabitEthernet0/1
+
+nat:
+  pat:
+    - device: r1
+      acl_id: "1"
+      source_network: 192.168.0.0/24
+      inside_interfaces: [GigabitEthernet0/0]
+      outside_interface: GigabitEthernet0/1
+
+verification:
+  connectivity:
+    - name: inside-client-to-public-server
+      source: pc1
+      destination: server1
+      expected: pass

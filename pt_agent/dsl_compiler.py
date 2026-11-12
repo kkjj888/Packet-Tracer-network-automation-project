@@ -19,6 +19,7 @@ from .compiler.interface import (
     compile_ipv4_interfaces,
     compile_vlan_subinterfaces,
 )
+from .compiler.nat import PatConfig, compile_pat_config
 from .compiler.ospf import OspfNetwork, compile_ospf_config
 from .compiler.rip import RipConfig, compile_rip_config
 from .compiler.static_routing import (
@@ -172,6 +173,7 @@ def compile_network_dsl(
             *_compile_switch_plans(document, device_types),
             *_compile_router_plans(document, device_types),
             *_compile_dhcp_plans(document, device_types),
+            *_compile_nat_plans(document, device_types),
             *_compile_acl_plans(document, device_types),
             *_compile_static_plans(document, device_types),
             *_compile_rip_plans(document, device_types),
@@ -389,6 +391,34 @@ def _compile_router_plans(
         for device, items in subinterfaces.items()
     )
     return plans
+
+
+def _compile_nat_plans(
+    document: Mapping[str, object],
+    device_types: Mapping[str, str],
+) -> list[CommandPlan]:
+    nat = document.get("nat")
+    if not isinstance(nat, dict):
+        return []
+    grouped: dict[str, list[PatConfig]] = {}
+    for item in _as_list(nat.get("pat")):
+        if not isinstance(item, dict):
+            continue
+        device = str(item["device"])
+        if device_types.get(device) != "router":
+            raise DslCompileError(f"NAT device {device} is not a router")
+        grouped.setdefault(device, []).append(
+            PatConfig(
+                str(item["acl_id"]),
+                str(item["source_network"]),
+                tuple(str(value) for value in _as_list(item["inside_interfaces"])),
+                str(item["outside_interface"]),
+            )
+        )
+    return [
+        compile_pat_config(device, configs)
+        for device, configs in grouped.items()
+    ]
 
 
 def _compile_acl_plans(

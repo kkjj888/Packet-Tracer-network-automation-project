@@ -81,6 +81,18 @@
         "$ref": "#/$defs/dhcp_client"
       }
     },
+    "nat": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pat": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/nat_pat"
+          }
+        }
+      }
+    },
     "acls": {
       "type": "array",
       "items": {
@@ -503,6 +515,42 @@
           "$ref": "#/$defs/identifier"
         },
         "port": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "nat_pat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "device",
+        "acl_id",
+        "source_network",
+        "inside_interfaces",
+        "outside_interface"
+      ],
+      "properties": {
+        "device": {
+          "$ref": "#/$defs/identifier"
+        },
+        "acl_id": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]?$"
+        },
+        "source_network": {
+          "$ref": "#/$defs/ipv4_cidr"
+        },
+        "inside_interfaces": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "outside_interface": {
           "type": "string",
           "minLength": 1
         }
