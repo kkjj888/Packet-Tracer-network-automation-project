@@ -45,6 +45,7 @@ from .config_suite import (
 )
 from .script_backend import (
     acl_state_js,
+    associate_wireless_client_js,
     configure_dhcp_client_js,
     configure_host_ip_js,
     configure_acl_js,
@@ -52,10 +53,12 @@ from .script_backend import (
     configure_static_routes_js,
     configure_switch_vlans_js,
     configure_trunk_port_js,
+    configure_wireless_ap_js,
     enter_ios_command_js,
     fast_forward_js,
     file_size_js,
     host_ip_state_js,
+    install_module_js,
     minimal_topology_js,
     new_project_js,
     open_project_js,
@@ -65,6 +68,7 @@ from .script_backend import (
     set_port_power_js,
     start_ping_js,
     start_traceroute_js,
+    swap_laptop_to_wireless_js,
     switch_vlan_state_js,
     terminal_state_js,
     topology_state_js,
@@ -2462,6 +2466,48 @@ def command_trunk_suite_demo(args: argparse.Namespace) -> int:
     return 0
 
 
+def _configure_wireless_dsl(
+    bridge: PTBridgeServer,
+    audit: JsonlAuditLogger,
+    network: CompiledNetwork,
+    *,
+    label: str,
+) -> dict[str, object]:
+    if network.wireless is None:
+        return {}
+    wireless = network.wireless
+    encrypt_type = 0 if wireless.encryption == "open" else 5
+    report: dict[str, object] = {
+        "access_point": _logged_command(
+            bridge,
+            audit,
+            f"{label}_ap",
+            configure_wireless_ap_js(
+                wireless.access_point,
+                wireless.ssid,
+                encrypt_type=encrypt_type,
+                psk=wireless.passphrase,
+            ),
+        ),
+        "clients": [],
+    }
+    for client in wireless.clients:
+        report["clients"].append(
+            _logged_command(
+                bridge,
+                audit,
+                f"{label}_client_{client}",
+                associate_wireless_client_js(
+                    client,
+                    wireless.ssid,
+                    encrypt_type=encrypt_type,
+                    psk=wireless.passphrase,
+                ),
+            )
+        )
+    return report
+
+
 def command_deploy_dsl(args: argparse.Namespace) -> int:
     try:
         document = load_yaml_document(args.path)
@@ -2549,6 +2595,13 @@ def command_deploy_dsl(args: argparse.Namespace) -> int:
                 )
             )
         report["command_plans"] = command_results
+
+        report["wireless"] = _configure_wireless_dsl(
+            bridge,
+            audit,
+            network,
+            label="dsl_wireless",
+        )
 
         dhcp_clients: list[object] = []
         for item in network.dhcp_clients:
@@ -2664,6 +2717,12 @@ def command_deploy_dsl(args: argparse.Namespace) -> int:
             audit,
             "dsl_reopen",
             open_project_js(project_path),
+        )
+        report["wireless_after_reopen"] = _configure_wireless_dsl(
+            bridge,
+            audit,
+            network,
+            label="dsl_wireless_after_reopen",
         )
         for device in network.devices:
             if device.device_type == "router":

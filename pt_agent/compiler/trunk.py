@@ -63,6 +63,7 @@ def compile_trunk_config(
     trunks: Iterable[TrunkPort],
     *,
     show: bool = True,
+    dot1q_encapsulation: bool = False,
 ) -> CommandPlan:
     body: list[str] = []
     seen: set[str] = set()
@@ -73,9 +74,11 @@ def compile_trunk_config(
             raise CommandCompileError(f"trunk port {port} is duplicated")
         seen.add(port)
         count += 1
+        body.append(f"interface {port}")
+        if dot1q_encapsulation:
+            body.append("switchport trunk encapsulation dot1q")
         body.extend(
             [
-                f"interface {port}",
                 "switchport mode trunk",
                 f"switchport trunk native vlan {native_vlan}",
                 f"switchport trunk allowed vlan {allowed}",

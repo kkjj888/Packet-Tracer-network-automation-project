@@ -45,6 +45,31 @@
         "$ref": "#/$defs/vlan_assignment"
       }
     },
+    "switch_routing": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/identifier"
+      }
+    },
+    "svis": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/svi"
+      }
+    },
+    "hsrp": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/hsrp_group"
+      }
+    },
+    "stp": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/stp_config"
+      }
+    },
     "routing": {
       "type": "object",
       "additionalProperties": false,
@@ -60,6 +85,15 @@
         },
         "ospf": {
           "$ref": "#/$defs/ospf"
+        },
+        "bgp": {
+          "$ref": "#/$defs/bgp"
+        },
+        "tunnels": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/gre_tunnel"
+          }
         }
       }
     },
@@ -90,6 +124,12 @@
           "items": {
             "$ref": "#/$defs/nat_pat"
           }
+        },
+        "static": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/nat_static"
+          }
         }
       }
     },
@@ -109,6 +149,67 @@
       "type": "array",
       "items": {
         "$ref": "#/$defs/acl_binding"
+      }
+    },
+    "management": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "devices": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/identifier"
+          }
+        },
+        "domain_name": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9.-]{1,80}$"
+        },
+        "username": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,31}$"
+        },
+        "password": {
+          "type": "string",
+          "minLength": 6,
+          "maxLength": 64
+        },
+        "access_acl": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,32}$"
+        }
+      }
+    },
+    "wireless": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ssid", "access_point", "clients"],
+      "properties": {
+        "ssid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "access_point": {
+          "$ref": "#/$defs/identifier"
+        },
+        "encryption": {
+          "enum": ["open", "wpa2-psk"]
+        },
+        "passphrase": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 63
+        },
+        "clients": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/identifier"
+          }
+        }
       }
     },
     "verification": {
@@ -131,6 +232,12 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/traceroute_test"
+          }
+        },
+        "device_output_assertions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/output_assertion"
           }
         }
       }
@@ -162,12 +269,48 @@
           "$ref": "#/$defs/identifier"
         },
         "type": {
-          "enum": ["router", "switch", "pc", "server"]
+          "enum": [
+            "router",
+            "switch",
+            "multilayer_switch",
+            "pc",
+            "server",
+            "laptop",
+            "access_point"
+          ]
         },
         "model": {
           "type": "string",
           "minLength": 1,
           "maxLength": 64
+        },
+        "x": {
+          "type": "integer",
+          "minimum": 20,
+          "maximum": 4000
+        },
+        "y": {
+          "type": "integer",
+          "minimum": 20,
+          "maximum": 3000
+        },
+        "modules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "slot"],
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{1,64}$"
+              },
+              "slot": {
+                "type": "string",
+                "pattern": "^[0-9]+(?:/[0-9]+)*$"
+              }
+            }
+          }
         }
       }
     },
@@ -183,8 +326,13 @@
           "$ref": "#/$defs/endpoint"
         },
         "cable": {
-          "type": "string",
-          "minLength": 1
+          "enum": [
+            "copper-straight",
+            "copper-cross",
+            "fiber",
+            "console",
+            "serial"
+          ]
         }
       }
     },
@@ -287,6 +435,93 @@
         }
       }
     },
+    "svi": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["device", "vlan", "address"],
+      "properties": {
+        "device": {
+          "$ref": "#/$defs/identifier"
+        },
+        "vlan": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4094
+        },
+        "address": {
+          "$ref": "#/$defs/ipv4_cidr"
+        }
+      }
+    },
+    "hsrp_group": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["device", "vlan", "group", "virtual_ip"],
+      "properties": {
+        "device": {
+          "$ref": "#/$defs/identifier"
+        },
+        "vlan": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4094
+        },
+        "group": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "virtual_ip": {
+          "$ref": "#/$defs/ipv4"
+        },
+        "priority": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 255
+        },
+        "preempt": {
+          "type": "boolean"
+        },
+        "track_port": {
+          "type": "string",
+          "minLength": 1
+        },
+        "track_decrement": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 255
+        }
+      }
+    },
+    "stp_config": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["device", "role", "vlans"],
+      "properties": {
+        "device": {
+          "$ref": "#/$defs/identifier"
+        },
+        "role": {
+          "enum": ["primary", "secondary", "priority"]
+        },
+        "vlans": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4094
+          }
+        },
+        "priority": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 61440,
+          "multipleOf": 4096
+        }
+      }
+    },
     "static_route": {
       "type": "object",
       "additionalProperties": false,
@@ -351,6 +586,12 @@
           "minimum": 1,
           "maximum": 65535
         },
+        "router_id": {
+          "$ref": "#/$defs/ipv4"
+        },
+        "default_information_originate": {
+          "type": "boolean"
+        },
         "devices": {
           "type": "array",
           "minItems": 1,
@@ -377,16 +618,131 @@
                 "type": "integer",
                 "minimum": 0,
                 "maximum": 4294967295
+              },
+              "passive": {
+                "type": "boolean"
+              },
+              "point_to_point": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "area_ranges": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["device", "area", "network"],
+            "properties": {
+              "device": {
+                "$ref": "#/$defs/identifier"
+              },
+              "area": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4294967295
+              },
+              "network": {
+                "$ref": "#/$defs/ipv4_cidr"
               }
             }
           }
         }
       }
     },
+    "bgp": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["devices"],
+      "properties": {
+        "devices": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["device", "local_as"],
+            "properties": {
+              "device": {
+                "$ref": "#/$defs/identifier"
+              },
+              "local_as": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 4294967295
+              },
+              "router_id": {
+                "$ref": "#/$defs/ipv4"
+              },
+              "neighbors": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["address", "remote_as"],
+                  "properties": {
+                    "address": {
+                      "$ref": "#/$defs/ipv4"
+                    },
+                    "remote_as": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 4294967295
+                    }
+                  }
+                }
+              },
+              "networks": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/ipv4_cidr"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "gre_tunnel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "device",
+        "interface",
+        "address",
+        "source",
+        "destination"
+      ],
+      "properties": {
+        "device": {
+          "$ref": "#/$defs/identifier"
+        },
+        "interface": {
+          "type": "string",
+          "pattern": "^Tunnel[0-9]+$"
+        },
+        "address": {
+          "$ref": "#/$defs/ipv4_cidr"
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "destination": {
+          "$ref": "#/$defs/ipv4"
+        },
+        "mtu": {
+          "type": "integer",
+          "minimum": 576,
+          "maximum": 1500
+        }
+      }
+    },
     "acl_rule": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["action", "match"],
+      "required": ["action"],
       "properties": {
         "action": {
           "enum": ["permit", "deny"]
@@ -399,6 +755,54 @@
         },
         "wildcard": {
           "$ref": "#/$defs/ipv4"
+        },
+        "protocol": {
+          "enum": ["ip", "tcp", "udp", "icmp"]
+        },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": ["any", "host", "network"]
+            },
+            "address": {
+              "$ref": "#/$defs/ipv4"
+            },
+            "wildcard": {
+              "$ref": "#/$defs/ipv4"
+            }
+          },
+          "required": ["kind"]
+        },
+        "destination": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": ["any", "host", "network"]
+            },
+            "address": {
+              "$ref": "#/$defs/ipv4"
+            },
+            "wildcard": {
+              "$ref": "#/$defs/ipv4"
+            }
+          },
+          "required": ["kind"]
+        },
+        "source_port_eq": {
+          "$ref": "#/$defs/port_or_name"
+        },
+        "destination_port_eq": {
+          "$ref": "#/$defs/port_or_name"
+        },
+        "icmp_type": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,31}$"
+        },
+        "established": {
+          "type": "boolean"
         }
       },
       "allOf": [
@@ -408,7 +812,8 @@
               "match": {
                 "const": "host"
               }
-            }
+            },
+            "required": ["match"]
           },
           "then": {
             "required": ["address"]
@@ -420,11 +825,87 @@
               "match": {
                 "const": "network"
               }
-            }
+            },
+            "required": ["match"]
           },
           "then": {
             "required": ["address", "wildcard"]
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "protocol": {
+                "const": "tcp"
+              }
+            },
+            "required": ["protocol"]
+          },
+          "then": {
+            "required": ["source", "destination"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "protocol": {
+                "const": "udp"
+              }
+            },
+            "required": ["protocol"]
+          },
+          "then": {
+            "required": ["source", "destination"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "protocol": {
+                "const": "ip"
+              }
+            },
+            "required": ["protocol"]
+          },
+          "then": {
+            "required": ["source", "destination"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "protocol": {
+                "const": "icmp"
+              }
+            },
+            "required": ["protocol"]
+          },
+          "then": {
+            "required": ["source", "destination"]
+          }
+        }
+      ]
+    },
+    "port_or_name": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        {
+          "type": "string",
+          "enum": [
+            "bootpc",
+            "bootps",
+            "domain",
+            "www",
+            "https",
+            "ssh",
+            "telnet",
+            "ftp",
+            "smtp"
+          ]
         }
       ]
     },
@@ -436,6 +917,9 @@
         "id": {
           "type": "string",
           "pattern": "^[A-Za-z0-9_-]{1,32}$"
+        },
+        "kind": {
+          "enum": ["standard", "extended"]
         },
         "rules": {
           "type": "array",
@@ -626,6 +1110,57 @@
         }
       }
     },
+    "nat_static": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "device",
+        "protocol",
+        "inside_address",
+        "inside_port",
+        "outside_address",
+        "outside_port",
+        "inside_interfaces",
+        "outside_interface"
+      ],
+      "properties": {
+        "device": {
+          "$ref": "#/$defs/identifier"
+        },
+        "protocol": {
+          "enum": ["tcp", "udp"]
+        },
+        "inside_address": {
+          "$ref": "#/$defs/ipv4"
+        },
+        "inside_port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "outside_address": {
+          "$ref": "#/$defs/ipv4"
+        },
+        "outside_port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "inside_interfaces": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "outside_interface": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
     "link_failure": {
       "type": "object",
       "additionalProperties": false,
@@ -641,6 +1176,32 @@
         "port": {
           "type": "string",
           "minLength": 1
+        }
+      }
+    },
+    "output_assertion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "device", "command", "expected_contains"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "device": {
+          "$ref": "#/$defs/identifier"
+        },
+        "command": {
+          "type": "string",
+          "pattern": "^show [A-Za-z0-9/|._ -]+$"
+        },
+        "expected_contains": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       }
     }

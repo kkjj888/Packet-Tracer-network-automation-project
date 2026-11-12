@@ -98,6 +98,188 @@ def configure_host_ip_js(
 }})()"""
 
 
+def install_module_js(device: str, slot: str, model: str) -> str:
+    """Install one chassis module using PT's module-tree IPC contract."""
+
+    device_text = json.dumps(device, ensure_ascii=False)
+    slot_text = json.dumps(slot, ensure_ascii=False)
+    model_text = json.dumps(model, ensure_ascii=False)
+    return f"""(function(){{
+  try{{
+    var d=ipc.network().getDevice({device_text});
+    if(!d)return "ERROR:device_not_found";
+    var parts=String({slot_text}).split("/");
+    var idx=[];
+    for(var i=0;i<parts.length;i++){{
+      var n=parseInt(parts[i],10);
+      if(!isFinite(n))return "ERROR:bad_slot_path";
+      idx.push(n);
+    }}
+    var parent=d.getRootModule();
+    if(!parent)return "ERROR:no_root_module";
+    for(var k=0;k<idx.length-1;k++){{
+      parent=parent.getModuleAt(idx[k]);
+      if(!parent)return "ERROR:module_descent_failed";
+    }}
+    var bay=idx[idx.length-1];
+    var wasOn=false;
+    try{{wasOn=!!d.getPower();}}catch(e){{}}
+    try{{if(wasOn)d.setPower(false);}}catch(e){{}}
+    var added=false;
+    try{{added=!!parent.addModuleAt({model_text},bay);}}catch(e){{
+      if(wasOn)try{{d.setPower(true);}}catch(e2){{}}
+      return "ERROR:add_module:"+String(e);
+    }}
+    try{{if(wasOn)d.setPower(true);}}catch(e){{}}
+    try{{d.skipBoot();}}catch(e){{}}
+    var ports=[];
+    for(var j=0;j<d.getPortCount();j++)ports.push(String(d.getPortAt(j).getName()));
+    return JSON.stringify({{
+      device:{device_text},
+      slot:{slot_text},
+      model:{model_text},
+      added:added,
+      ports:ports
+    }});
+  }}catch(e){{
+    return "ERROR:"+String(e&&e.message?e.message:e);
+  }}
+}})()"""
+
+
+def swap_laptop_to_wireless_js(
+    device: str,
+    module_name: str = "PT-LAPTOP-NM-1W",
+) -> str:
+    device_text = json.dumps(device, ensure_ascii=False)
+    module_text = json.dumps(module_name, ensure_ascii=False)
+    return f"""(function(){{
+  try{{
+    var d=ipc.network().getDevice({device_text});
+    if(!d)return "ERROR:device_not_found";
+    for(var i=0;i<d.getPortCount();i++){{
+      var existing=d.getPortAt(i);
+      if(existing&&typeof existing.isWirelessPort==="function"&&existing.isWirelessPort()){{
+        return JSON.stringify({{device:{device_text},port:String(existing.getName()),already:true}});
+      }}
+    }}
+    var root=d.getRootModule();
+    var slotType=Number(root.getSlotTypeAt(0));
+    process_slot_type:try{{
+      d.setPower(false);
+      root.removeModuleAt(0);
+      var added=d.addModule("0",slotType,{module_text});
+      d.setPower(true);
+      if(!added)return "ERROR:wireless_module_add_failed";
+      for(var j=0;j<d.getPortCount();j++){{
+        var p=d.getPortAt(j);
+        if(p&&typeof p.isWirelessPort==="function"&&p.isWirelessPort()){{
+          return JSON.stringify({{device:{device_text},port:String(p.getName()),added:true}});
+        }}
+      }}
+      return "ERROR:wireless_port_not_found";
+    }}finally{{
+      try{{d.setPower(true);}}catch(e){{}}
+      try{{d.skipBoot();}}catch(e){{}}
+    }}
+  }}catch(e){{
+    return "ERROR:"+String(e&&e.message?e.message:e);
+  }}
+}})()"""
+
+
+def configure_wireless_ap_js(
+    device: str,
+    ssid: str,
+    *,
+    encrypt_type: int = 0,
+    psk: str | None = None,
+) -> str:
+    device_text = json.dumps(device, ensure_ascii=False)
+    ssid_text = json.dumps(ssid, ensure_ascii=False)
+    psk_line = (
+        f'var w=p.getWpaProcess&&p.getWpaProcess();'
+        f'if(w&&typeof w.setKey==="function")w.setKey({json.dumps(psk, ensure_ascii=False)});'
+        if psk
+        else ""
+    )
+    return f"""(function(){{
+  try{{
+    var d=ipc.network().getDevice({device_text});
+    if(!d)return "ERROR:device_not_found";
+    var p=null;
+    var names=["WirelessServer","WirelessCommon","Wireless"];
+    for(var i=0;i<names.length&&!p;i++)try{{p=d.getProcess(names[i]);}}catch(e){{}}
+    if(!p&&typeof d.setSsid==="function")p=d;
+    if(!p)return "ERROR:wireless_process_not_found";
+    p.setSsid({ssid_text});
+    if(typeof p.setEncryptType==="function")p.setEncryptType({int(encrypt_type)});
+    if(typeof p.setSsidBrdCastEnabled==="function")p.setSsidBrdCastEnabled(true);
+    if(typeof p.resetAllAssociations==="function")p.resetAllAssociations();
+    {psk_line}
+    return JSON.stringify({{
+      device:{device_text},
+      ssid:String(p.getSsid&&p.getSsid()||""),
+      encryptType:Number(p.getEncryptType&&p.getEncryptType())
+    }});
+  }}catch(e){{
+    return "ERROR:"+String(e&&e.message?e.message:e);
+  }}
+}})()"""
+
+
+def associate_wireless_client_js(
+    device: str,
+    ssid: str,
+    *,
+    encrypt_type: int = 0,
+    psk: str | None = None,
+) -> str:
+    device_text = json.dumps(device, ensure_ascii=False)
+    ssid_text = json.dumps(ssid, ensure_ascii=False)
+    auth_type = 0 if encrypt_type == 0 else 3
+    psk_line = (
+        f'var w=p.getWpaProcess&&p.getWpaProcess();'
+        f'if(w&&typeof w.setKey==="function")w.setKey({json.dumps(psk, ensure_ascii=False)});'
+        if psk
+        else ""
+    )
+    return f"""(function(){{
+  try{{
+    var d=ipc.network().getDevice({device_text});
+    if(!d)return "ERROR:device_not_found";
+    var p=null;
+    var names=["WirelessClient","WirelessCommon","Wireless"];
+    for(var i=0;i<names.length&&!p;i++)try{{p=d.getProcess(names[i]);}}catch(e){{}}
+    if(!p&&typeof d.setSsid==="function")p=d;
+    if(!p)return "ERROR:wireless_process_not_found";
+    p.setSsid({ssid_text});
+    if(typeof p.setAuthenType==="function")p.setAuthenType({auth_type});
+    if(typeof p.setEncryptType==="function")p.setEncryptType({int(encrypt_type)});
+    {psk_line}
+    if(typeof p.resetAllAssociations==="function")p.resetAllAssociations();
+    var wirelessPort=null;
+    for(var j=0;j<d.getPortCount();j++){{
+      var candidate=d.getPortAt(j);
+      if(candidate&&typeof candidate.isWirelessPort==="function"&&candidate.isWirelessPort()){{
+        wirelessPort=candidate;
+        break;
+      }}
+    }}
+    if(wirelessPort)wirelessPort.setDhcpClientFlag(true);
+    try{{d.setDhcpFlag(true);}}catch(e){{}}
+    return JSON.stringify({{
+      device:{device_text},
+      ssid:String(p.getSsid&&p.getSsid()||""),
+      port:wirelessPort?String(wirelessPort.getName()):"",
+      dhcp:wirelessPort?!!wirelessPort.isDhcpClientOn():false
+    }});
+  }}catch(e){{
+    return "ERROR:"+String(e&&e.message?e.message:e);
+  }}
+}})()"""
+
+
 def host_ip_state_js(device: str, port: str) -> str:
     device_text = json.dumps(device, ensure_ascii=False)
     port_text = json.dumps(port, ensure_ascii=False)

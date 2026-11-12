@@ -21,6 +21,18 @@ from .compiler.interface import (
 )
 from .compiler.nat import PatConfig, compile_pat_config
 from .compiler.ospf import OspfNetwork, compile_ospf_config
+from .compiler.platform import (
+    HsrpGroup,
+    RoutedSwitchPort,
+    StpConfig,
+    SviConfig,
+    compile_hsrp_config,
+    compile_management_config,
+    compile_routed_switch_ports,
+    compile_stp_config,
+    compile_svi_config,
+    compile_switch_routing,
+)
 from .compiler.rip import RipConfig, compile_rip_config
 from .compiler.static_routing import (
     StaticRoute,
@@ -43,9 +55,24 @@ class DslCompileError(ValueError):
 DEVICE_TYPE_IDS = {
     "router": 0,
     "switch": 1,
+    "access_point": 7,
     "pc": 8,
     "server": 9,
+    "multilayer_switch": 16,
+    "laptop": 18,
 }
+
+CABLE_TYPE_IDS = {
+    "copper-straight": 8100,
+    "copper-cross": 8101,
+    "fiber": 8103,
+    "console": 8108,
+    "serial": 8106,
+}
+
+_HOST_TYPES = frozenset({"pc", "server", "laptop"})
+_L2_TYPES = frozenset({"switch", "multilayer_switch"})
+_L3_TYPES = frozenset({"router", "multilayer_switch"})
 
 
 @dataclass(frozen=True)
@@ -55,6 +82,7 @@ class TopologyDevice:
     model: str
     x: int
     y: int
+    modules: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -113,6 +141,15 @@ class TracerouteSpec:
 
 
 @dataclass(frozen=True)
+class WirelessConfig:
+    access_point: str
+    ssid: str
+    clients: tuple[str, ...]
+    encryption: str
+    passphrase: str | None
+
+
+@dataclass(frozen=True)
 class CompiledNetwork:
     project: str
     devices: tuple[TopologyDevice, ...]
@@ -124,6 +161,7 @@ class CompiledNetwork:
     verification: tuple[VerificationSpec, ...]
     route_assertions: tuple[RouteAssertionSpec, ...]
     traceroutes: tuple[TracerouteSpec, ...]
+    wireless: WirelessConfig | None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -133,6 +171,10 @@ class CompiledNetwork:
                     "id": device.device_id,
                     "type": device.device_type,
                     "model": device.model,
+                    "modules": [
+                        {"name": name, "slot": slot}
+                        for name, slot in device.modules
+                    ],
                 }
                 for device in self.devices
             ],
@@ -203,6 +245,16 @@ class CompiledNetwork:
                 }
                 for item in self.traceroutes
             ],
+            "wireless": (
+                {
+                    "access_point": self.wireless.access_point,
+                    "ssid": self.wireless.ssid,
+                    "clients": list(self.wireless.clients),
+                    "encryption": self.wireless.encryption,
+                }
+                if self.wireless
+                else None
+            ),
         }
 
 
@@ -228,6 +280,7 @@ def compile_network_dsl(
     plans = tuple(
         [
             *_compile_switch_plans(document, device_types),
+            *_compile_platform_plans(document, device_types),
             *_compile_router_plans(document, device_types),
             *_compile_dhcp_plans(document, device_types),
             *_compile_nat_plans(document, device_types),
@@ -235,6 +288,7 @@ def compile_network_dsl(
             *_compile_static_plans(document, device_types),
             *_compile_rip_plans(document, device_types),
             *_compile_ospf_plans(document, device_types),
+            *_compile_management_plans(document, device_types),
         ]
     )
     return CompiledNetwork(
@@ -248,6 +302,7 @@ def compile_network_dsl(
         verification=tuple(_compile_verification(document)),
         route_assertions=tuple(_compile_route_assertions(document)),
         traceroutes=tuple(_compile_traceroutes(document)),
+        wireless=_compile_wireless(document, device_types),
     )
 
 
@@ -265,13 +320,19 @@ def _compile_devices(
             )
         column = index % 4
         row = index // 4
+        modules = tuple(
+            (str(module["name"]), str(module["slot"]))
+            for module in _as_list(item.get("modules"))
+            if isinstance(module, dict)
+        )
         result.append(
             TopologyDevice(
                 str(item["id"]),
                 device_type,
                 str(item["model"]),
-                160 + column * 260,
-                180 + row * 240,
+                int(item.get("x", 160 + column * 260)),
+                int(item.get("y", 180 + row * 240)),
+                modules,
             )
         )
     return result
@@ -300,7 +361,7 @@ def _compile_host_addresses(
         if not isinstance(item, dict):
             continue
         device = str(item["device"])
-        if device_types.get(device) not in ("pc", "server"):
+        if device_types.get(device) not in _HOST_TYPES:
             continue
         result.append(
             HostAddressConfig(
@@ -322,9 +383,9 @@ def _compile_dhcp_clients(
         if not isinstance(item, dict):
             continue
         device = str(item["device"])
-        if device_types.get(device) not in ("pc", "server"):
+        if device_types.get(device) not in _HOST_TYPES:
             raise DslCompileError(
-                f"DHCP client {device} must be a PC or server"
+                f"DHCP client {device} must be a PC, server, or laptop"
             )
         result.append(DhcpClientConfig(device, str(item["port"])))
     return result
@@ -356,8 +417,10 @@ def _compile_dhcp_plans(
         if not isinstance(item, dict):
             continue
         device = str(item["device"])
-        if device_types.get(device) != "router":
-            raise DslCompileError(f"DHCP server {device} is not a router")
+        if device_types.get(device) not in _L3_TYPES:
+            raise DslCompileError(
+                f"DHCP server {device} is not a layer-3 device"
+            )
         grouped.setdefault(device, []).append(
             DhcpPool(
                 str(item["name"]),
@@ -380,7 +443,7 @@ def _compile_switch_plans(
     switches = [
         device_id
         for device_id, device_type in device_types.items()
-        if device_type == "switch"
+        if device_type in _L2_TYPES
     ]
     vlan_definitions = [
         VlanDefinition(int(item["id"]), str(item["name"]))
@@ -427,7 +490,103 @@ def _compile_switch_plans(
             if item.get("mode") == "trunk"
         ]
         if trunk_ports:
-            plans.append(compile_trunk_config(switch, trunk_ports))
+            plans.append(
+                compile_trunk_config(
+                    switch,
+                    trunk_ports,
+                    dot1q_encapsulation=(
+                        device_types.get(switch) == "multilayer_switch"
+                    ),
+                )
+            )
+    return plans
+
+
+def _compile_platform_plans(
+    document: Mapping[str, object],
+    device_types: Mapping[str, str],
+) -> list[CommandPlan]:
+    plans: list[CommandPlan] = []
+    for device in _as_list(document.get("switch_routing")):
+        device_id = str(device)
+        if device_types.get(device_id) != "multilayer_switch":
+            raise DslCompileError(
+                f"switch routing device {device_id} is not a multilayer switch"
+            )
+        plans.append(compile_switch_routing(device_id))
+
+    routed_ports: dict[str, list[RoutedSwitchPort]] = {}
+    for item in _as_list(document.get("ipv4")):
+        if not isinstance(item, dict):
+            continue
+        device = str(item["device"])
+        if device_types.get(device) != "multilayer_switch":
+            continue
+        routed_ports.setdefault(device, []).append(
+            RoutedSwitchPort(
+                str(item["port"]),
+                str(item["address"]),
+                point_to_point=bool(item.get("point_to_point", False)),
+            )
+        )
+    plans.extend(
+        compile_routed_switch_ports(device, ports)
+        for device, ports in routed_ports.items()
+    )
+
+    svis: dict[str, list[SviConfig]] = {}
+    for item in _as_list(document.get("svis")):
+        if not isinstance(item, dict):
+            continue
+        device = str(item["device"])
+        if device_types.get(device) != "multilayer_switch":
+            raise DslCompileError(f"SVI device {device} is not a multilayer switch")
+        svis.setdefault(device, []).append(
+            SviConfig(int(item["vlan"]), str(item["address"]))
+        )
+    plans.extend(
+        compile_svi_config(device, items) for device, items in svis.items()
+    )
+
+    hsrp: dict[str, list[HsrpGroup]] = {}
+    for item in _as_list(document.get("hsrp")):
+        if not isinstance(item, dict):
+            continue
+        device = str(item["device"])
+        if device_types.get(device) != "multilayer_switch":
+            raise DslCompileError(f"HSRP device {device} is not a multilayer switch")
+        hsrp.setdefault(device, []).append(
+            HsrpGroup(
+                int(item["vlan"]),
+                int(item["group"]),
+                str(item["virtual_ip"]),
+                int(item.get("priority", 100)),
+                bool(item.get("preempt", True)),
+                str(item["track_port"]) if item.get("track_port") else None,
+                int(item.get("track_decrement", 10)),
+            )
+        )
+    plans.extend(
+        compile_hsrp_config(device, items) for device, items in hsrp.items()
+    )
+
+    stp: dict[str, list[StpConfig]] = {}
+    for item in _as_list(document.get("stp")):
+        if not isinstance(item, dict):
+            continue
+        device = str(item["device"])
+        if device_types.get(device) != "multilayer_switch":
+            raise DslCompileError(f"STP device {device} is not a multilayer switch")
+        stp.setdefault(device, []).append(
+            StpConfig(
+                str(item["role"]),
+                tuple(int(vlan) for vlan in _as_list(item["vlans"])),
+                int(item["priority"]) if item.get("priority") is not None else None,
+            )
+        )
+    plans.extend(
+        compile_stp_config(device, items) for device, items in stp.items()
+    )
     return plans
 
 
@@ -479,8 +638,8 @@ def _compile_nat_plans(
         if not isinstance(item, dict):
             continue
         device = str(item["device"])
-        if device_types.get(device) != "router":
-            raise DslCompileError(f"NAT device {device} is not a router")
+        if device_types.get(device) not in _L3_TYPES:
+            raise DslCompileError(f"NAT device {device} is not a layer-3 device")
         grouped.setdefault(device, []).append(
             PatConfig(
                 str(item["acl_id"]),
@@ -527,9 +686,9 @@ def _compile_acl_plans(
             if str(binding.get("acl")) != acl_id:
                 continue
             device = str(binding["device"])
-            if device_types.get(device) != "router":
+            if device_types.get(device) not in _L3_TYPES:
                 raise DslCompileError(
-                    f"ACL {acl_id} is bound to non-router {device}"
+                    f"ACL {acl_id} is bound to non-layer-3 device {device}"
                 )
             by_device.setdefault(device, []).append(
                 AclBinding(
@@ -554,8 +713,10 @@ def _compile_static_plans(
         if not isinstance(item, dict):
             continue
         device = str(item["device"])
-        if device_types.get(device) != "router":
-            raise DslCompileError(f"static route device {device} is not a router")
+        if device_types.get(device) not in _L3_TYPES:
+            raise DslCompileError(
+                f"static route device {device} is not a layer-3 device"
+            )
         grouped.setdefault(device, []).append(
             StaticRoute(
                 str(item["network"]),
@@ -585,8 +746,10 @@ def _compile_rip_plans(
     plans: list[CommandPlan] = []
     for device in _as_list(rip.get("devices")):
         device_id = str(device)
-        if device_types.get(device_id) != "router":
-            raise DslCompileError(f"RIP device {device_id} is not a router")
+        if device_types.get(device_id) not in _L3_TYPES:
+            raise DslCompileError(
+                f"RIP device {device_id} is not a layer-3 device"
+            )
         plans.append(compile_rip_config(device_id, config))
     return plans
 
@@ -604,8 +767,10 @@ def _compile_ospf_plans(
         if not isinstance(item, dict):
             continue
         device = str(item["device"])
-        if device_types.get(device) != "router":
-            raise DslCompileError(f"OSPF device {device} is not a router")
+        if device_types.get(device) not in _L3_TYPES:
+            raise DslCompileError(
+                f"OSPF device {device} is not a layer-3 device"
+            )
         grouped.setdefault(device, []).append(
             OspfNetwork(str(item["network"]), int(item["area"]))
         )
@@ -625,6 +790,73 @@ def _compile_ospf_plans(
             )
         )
     return plans
+
+
+def _compile_management_plans(
+    document: Mapping[str, object],
+    device_types: Mapping[str, str],
+) -> list[CommandPlan]:
+    management = document.get("management")
+    if not isinstance(management, dict):
+        return []
+    domain_name = str(management.get("domain_name", "bonus.local"))
+    username = str(management.get("username", "admin"))
+    password = str(management.get("password", "Cisco123!"))
+    access_acl = (
+        str(management["access_acl"])
+        if management.get("access_acl") is not None
+        else None
+    )
+    plans: list[CommandPlan] = []
+    for device in _as_list(management.get("devices")):
+        device_id = str(device)
+        if device_types.get(device_id) not in _L3_TYPES:
+            raise DslCompileError(
+                f"management device {device_id} is not a layer-3 device"
+            )
+        plans.append(
+            compile_management_config(
+                device_id,
+                domain_name=domain_name,
+                username=username,
+                password=password,
+                access_acl=access_acl,
+            )
+        )
+    return plans
+
+
+def _compile_wireless(
+    document: Mapping[str, object],
+    device_types: Mapping[str, str],
+) -> WirelessConfig | None:
+    wireless = document.get("wireless")
+    if not isinstance(wireless, dict):
+        return None
+    access_point = str(wireless["access_point"])
+    if device_types.get(access_point) != "access_point":
+        raise DslCompileError(
+            f"wireless access point {access_point} has the wrong device type"
+        )
+    clients = tuple(str(value) for value in _as_list(wireless["clients"]))
+    for client in clients:
+        if device_types.get(client) != "laptop":
+            raise DslCompileError(
+                f"wireless client {client} is not a laptop"
+            )
+    encryption = str(wireless.get("encryption", "open"))
+    passphrase = (
+        str(wireless["passphrase"])
+        if wireless.get("passphrase") is not None
+        else None
+    )
+    return WirelessConfig(
+        access_point,
+        str(wireless["ssid"]),
+        clients,
+        encryption,
+        passphrase,
+    )
 
 
 def _compile_verification(
@@ -692,6 +924,8 @@ def topology_js(network: CompiledNetwork) -> str:
             "model": device.model,
             "x": device.x,
             "y": device.y,
+            "modules": list(device.modules),
+            "wireless": device.device_type == "laptop",
         }
         for device in network.devices
     ]
@@ -699,7 +933,7 @@ def topology_js(network: CompiledNetwork) -> str:
         {
             "from": link.from_endpoint,
             "to": link.to_endpoint,
-            "cable": 8100,
+            "cable": CABLE_TYPE_IDS.get(link.cable, 8100),
         }
         for link in network.links
     ]
@@ -715,6 +949,39 @@ def topology_js(network: CompiledNetwork) -> str:
     d.setName(spec.id);
     d.setPower(true);
     try{{d.skipBoot();}}catch(e){{}}
+    if(spec.wireless){{
+      var wireless=false;
+      for(var wp=0;wp<d.getPortCount();wp++){{
+        var wpPort=d.getPortAt(wp);
+        if(wpPort&&typeof wpPort.isWirelessPort==="function"&&wpPort.isWirelessPort()){{
+          wireless=true;
+          break;
+        }}
+      }}
+      if(!wireless){{
+        var root=d.getRootModule();
+        var slotType=Number(root.getSlotTypeAt(0));
+        d.setPower(false);
+        root.removeModuleAt(0);
+        d.addModule("0",slotType,"PT-LAPTOP-NM-1W");
+        d.setPower(true);
+        try{{d.skipBoot();}}catch(e){{}}
+      }}
+    }}
+    for(var mi=0;mi<spec.modules.length;mi++){{
+      var mod=spec.modules[mi];
+      var parts=String(mod.slot).split("/");
+      var idx=[];
+      for(var px=0;px<parts.length;px++)idx.push(parseInt(parts[px],10));
+      var parent=d.getRootModule();
+      for(var di=0;di<idx.length-1;di++)parent=parent.getModuleAt(idx[di]);
+      var wasOn=false;
+      try{{wasOn=!!d.getPower();}}catch(e){{}}
+      try{{if(wasOn)d.setPower(false);}}catch(e){{}}
+      var moduleAdded=parent.addModuleAt(mod.name,idx[idx.length-1]);
+      try{{if(wasOn)d.setPower(true);d.skipBoot();}}catch(e){{}}
+      if(!moduleAdded)return "ERROR:add_module:"+spec.id+":"+mod.name;
+    }}
   }}
   var links={_json(link_specs)};
   for(var j=0;j<links.length;j++){{

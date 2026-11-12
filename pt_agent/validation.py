@@ -138,6 +138,11 @@ class _SemanticChecker:
             for item in _as_list(document.get("ipv4"))
             if isinstance(item, dict)
         ]
+        self.svis = [
+            item
+            for item in _as_list(document.get("svis"))
+            if isinstance(item, dict)
+        ]
         self.vlans = {
             int(vlan["id"]): vlan
             for vlan in _as_list(document.get("vlans"))
@@ -156,6 +161,8 @@ class _SemanticChecker:
         self._check_ospf()
         self._check_acls()
         self._check_acl_bindings()
+        self._check_platform()
+        self._check_wireless()
         self._check_verification()
         return self.issues
 
@@ -363,11 +370,11 @@ class _SemanticChecker:
                     f"{path}.device",
                     f"unknown device {device_id!r}",
                 )
-            elif device.get("type") != "switch":
+            elif device.get("type") not in ("switch", "multilayer_switch"):
                 self.error(
                     "VLAN_ASSIGNMENT_REQUIRES_SWITCH",
                     f"{path}.device",
-                    f"{device_id} is not a switch",
+                    f"{device_id} is not a layer-2 switch",
                 )
             key = (device_id, port)
             if key in seen_ports:
@@ -427,11 +434,11 @@ class _SemanticChecker:
                 f"unknown device {device_id!r}",
             )
             return False
-        if device.get("type") != "router":
+        if device.get("type") not in ("router", "multilayer_switch"):
             self.error(
-                "ROUTER_REQUIRED",
+                "LAYER3_DEVICE_REQUIRED",
                 path,
-                f"{device_id} is not a router",
+                f"{device_id} is not a layer-3 device",
             )
             return False
         return True
@@ -575,11 +582,11 @@ class _SemanticChecker:
                     f"dhcp_clients[{index}].device",
                     f"unknown device {device_id!r}",
                 )
-            elif device.get("type") not in ("pc", "server"):
+            elif device.get("type") not in ("pc", "server", "laptop"):
                 self.error(
                     "DHCP_CLIENT_REQUIRES_HOST",
                     f"dhcp_clients[{index}].device",
-                    f"{device_id} is not a PC or server",
+                    f"{device_id} is not a PC, server, or laptop",
                 )
         for index, failure in enumerate(
             _as_list(self.document.get("link_failures"))
@@ -722,6 +729,15 @@ class _SemanticChecker:
                 continue
             if interface.ip in network:
                 return True
+        for item in self.svis:
+            if str(item.get("device")) != device_id:
+                continue
+            try:
+                interface = ipaddress.ip_interface(str(item.get("address")))
+            except ValueError:
+                continue
+            if interface.ip in network:
+                return True
         return False
 
     def _check_acls(self) -> None:
@@ -802,6 +818,155 @@ class _SemanticChecker:
                     f"{path}.acl",
                     f"ACL {acl_id!r} is not defined",
                 )
+
+    def _check_platform(self) -> None:
+        for index, device_id in enumerate(
+            _as_list(self.document.get("switch_routing"))
+        ):
+            device = self.devices.get(str(device_id))
+            if device is None:
+                self.error(
+                    "UNKNOWN_DEVICE",
+                    f"switch_routing[{index}]",
+                    f"unknown device {device_id!r}",
+                )
+            elif device.get("type") != "multilayer_switch":
+                self.error(
+                    "MULTILAYER_SWITCH_REQUIRED",
+                    f"switch_routing[{index}]",
+                    f"{device_id} is not a multilayer switch",
+                )
+
+        svi_by_device: dict[str, dict[int, ipaddress.IPv4Interface]] = {}
+        for index, item in enumerate(self.svis):
+            path = f"svis[{index}]"
+            device_id = str(item.get("device", ""))
+            device = self.devices.get(device_id)
+            if device is None:
+                self.error(
+                    "UNKNOWN_DEVICE",
+                    f"{path}.device",
+                    f"unknown device {device_id!r}",
+                )
+                continue
+            if device.get("type") != "multilayer_switch":
+                self.error(
+                    "MULTILAYER_SWITCH_REQUIRED",
+                    f"{path}.device",
+                    f"{device_id} is not a multilayer switch",
+                )
+            vlan = item.get("vlan")
+            if not isinstance(vlan, int) or not self._vlan_is_defined(vlan):
+                self.error(
+                    "UNKNOWN_VLAN_REFERENCE",
+                    f"{path}.vlan",
+                    f"VLAN {vlan} is not defined",
+                )
+                continue
+            try:
+                address = ipaddress.ip_interface(str(item.get("address", "")))
+            except ValueError as exc:
+                self.error("INVALID_SVI_ADDRESS", f"{path}.address", str(exc))
+                continue
+            if address.version != 4:
+                self.error(
+                    "INVALID_SVI_ADDRESS",
+                    f"{path}.address",
+                    "only IPv4 SVIs are supported",
+                )
+                continue
+            local = svi_by_device.setdefault(device_id, {})
+            if vlan in local:
+                self.error(
+                    "DUPLICATE_SVI",
+                    path,
+                    f"VLAN {vlan} has multiple SVIs on {device_id}",
+                )
+            local[vlan] = address
+
+        for index, item in enumerate(_as_list(self.document.get("hsrp"))):
+            if not isinstance(item, dict):
+                continue
+            path = f"hsrp[{index}]"
+            device_id = str(item.get("device", ""))
+            vlan = item.get("vlan")
+            local = svi_by_device.get(device_id, {})
+            svi = local.get(vlan) if isinstance(vlan, int) else None
+            if svi is None:
+                self.error(
+                    "HSRP_REQUIRES_SVI",
+                    f"{path}.vlan",
+                    f"{device_id} has no SVI for VLAN {vlan}",
+                )
+                continue
+            try:
+                virtual_ip = ipaddress.ip_address(str(item.get("virtual_ip", "")))
+            except ValueError as exc:
+                self.error(
+                    "INVALID_HSRP_VIRTUAL_IP",
+                    f"{path}.virtual_ip",
+                    str(exc),
+                )
+                continue
+            if virtual_ip not in svi.network:
+                self.error(
+                    "HSRP_VIP_OUTSIDE_SUBNET",
+                    f"{path}.virtual_ip",
+                    f"{virtual_ip} is outside {svi.network}",
+                )
+
+        for index, item in enumerate(_as_list(self.document.get("stp"))):
+            if not isinstance(item, dict):
+                continue
+            device_id = str(item.get("device", ""))
+            device = self.devices.get(device_id)
+            if device is None or device.get("type") != "multilayer_switch":
+                self.error(
+                    "MULTILAYER_SWITCH_REQUIRED",
+                    f"stp[{index}].device",
+                    f"{device_id} is not a multilayer switch",
+                )
+
+    def _check_wireless(self) -> None:
+        wireless = self.document.get("wireless")
+        if not isinstance(wireless, dict):
+            return
+        access_point = str(wireless.get("access_point", ""))
+        ap = self.devices.get(access_point)
+        if ap is None:
+            self.error(
+                "UNKNOWN_DEVICE",
+                "wireless.access_point",
+                f"unknown access point {access_point!r}",
+            )
+        elif ap.get("type") != "access_point":
+            self.error(
+                "ACCESS_POINT_REQUIRED",
+                "wireless.access_point",
+                f"{access_point} is not an access point",
+            )
+        for index, client in enumerate(_as_list(wireless.get("clients"))):
+            device = self.devices.get(str(client))
+            if device is None:
+                self.error(
+                    "UNKNOWN_DEVICE",
+                    f"wireless.clients[{index}]",
+                    f"unknown wireless client {client!r}",
+                )
+            elif device.get("type") != "laptop":
+                self.error(
+                    "WIRELESS_CLIENT_REQUIRES_LAPTOP",
+                    f"wireless.clients[{index}]",
+                    f"{client} is not a laptop",
+                )
+        if wireless.get("encryption") == "wpa2-psk" and not wireless.get(
+            "passphrase"
+        ):
+            self.error(
+                "WIRELESS_PASSPHRASE_REQUIRED",
+                "wireless.passphrase",
+                "WPA2-PSK requires a passphrase",
+            )
 
     def _check_verification(self) -> None:
         verification = self.document.get("verification")
@@ -903,9 +1068,34 @@ _ALLOWED_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^no shutdown$", re.I),
     re.compile(r"^encapsulation dot1Q \d{1,4}$", re.I),
     re.compile(r"^ip address (?:\d{1,3}\.){3}\d{1,3} (?:\d{1,3}\.){3}\d{1,3}$", re.I),
+    re.compile(r"^ip routing$", re.I),
+    re.compile(r"^no switchport$", re.I),
+    re.compile(r"^ip ospf network point-to-point$", re.I),
+    re.compile(
+        r"^standby \d{1,3} (?:ip (?:\d{1,3}\.){3}\d{1,3}|"
+        r"priority \d{1,3}|preempt|track [A-Za-z0-9/._-]+ \d{1,3})$",
+        re.I,
+    ),
+    re.compile(
+        r"^spanning-tree vlan [\d,-]+ (?:root (?:primary|secondary)|"
+        r"priority (?:0|4096|8192|12288|16384|20480|24576|28672|"
+        r"32768|36864|40960|45056|49152|53248|57344|61440))$",
+        re.I,
+    ),
+    re.compile(r"^ip domain-name [A-Za-z0-9.-]{1,80}$", re.I),
+    re.compile(
+        r"^username [A-Za-z][A-Za-z0-9_-]{0,31} privilege 15 "
+        r"secret \S{6,64}$",
+        re.I,
+    ),
+    re.compile(r"^line vty 0 4$", re.I),
+    re.compile(r"^access-class [A-Za-z0-9_-]{1,32} in$", re.I),
+    re.compile(r"^login local$", re.I),
+    re.compile(r"^transport input ssh$", re.I),
     re.compile(r"^vlan \d{1,4}$", re.I),
     re.compile(r"^name [A-Za-z0-9_-]{1,32}$", re.I),
     re.compile(r"^switchport mode (?:access|trunk)$", re.I),
+    re.compile(r"^switchport trunk encapsulation dot1q$", re.I),
     re.compile(r"^switchport access vlan \d{1,4}$", re.I),
     re.compile(r"^switchport trunk native vlan \d{1,4}$", re.I),
     re.compile(r"^switchport trunk allowed vlan (?:all|\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*)$", re.I),
