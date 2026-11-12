@@ -19,6 +19,8 @@ from .dsl_compiler import (
     DslCompileError,
     compile_network_dsl,
     topology_js,
+    topology_devices_js,
+    topology_links_js,
 )
 from .dsl_deployment import (
     DslDeploymentError,
@@ -2648,11 +2650,18 @@ def command_deploy_dsl(args: argparse.Namespace) -> int:
             "dsl_new_project",
             new_project_js(),
         )
-        report["topology"] = _logged_command(
+        report["topology_devices"] = _logged_command(
             bridge,
             audit,
-            "dsl_topology",
-            topology_js(network),
+            "dsl_topology_devices",
+            topology_devices_js(network),
+        )
+        time.sleep(2)
+        report["topology_links"] = _logged_command(
+            bridge,
+            audit,
+            "dsl_topology_links",
+            topology_links_js(network),
         )
         _logged_command(
             bridge,

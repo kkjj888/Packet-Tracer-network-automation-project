@@ -1216,11 +1216,11 @@ def _compile_output_assertions(
     ]
 
 
-def topology_js(network: CompiledNetwork) -> str:
+def _topology_device_specs(network: CompiledNetwork) -> list[dict[str, object]]:
     wireless_clients = (
         set(network.wireless.clients) if network.wireless else set()
     )
-    device_specs = [
+    return [
         {
             "id": device.device_id,
             "type": DEVICE_TYPE_IDS[device.device_type],
@@ -1235,7 +1235,10 @@ def topology_js(network: CompiledNetwork) -> str:
         }
         for device in network.devices
     ]
-    link_specs = [
+
+
+def _topology_link_specs(network: CompiledNetwork) -> list[dict[str, object]]:
+    return [
         {
             "from": link.from_endpoint,
             "to": link.to_endpoint,
@@ -1243,10 +1246,10 @@ def topology_js(network: CompiledNetwork) -> str:
         }
         for link in network.links
     ]
-    return f"""(function(){{
-  var lw={LOGICAL_WORKSPACE};
-  var net=ipc.network();
-  var devices={_json(device_specs)};
+
+
+def _device_creation_js(network: CompiledNetwork) -> str:
+    return f"""  var devices={_json(_topology_device_specs(network))};
   for(var i=0;i<devices.length;i++){{
     var spec=devices[i];
     var assigned=lw.addDevice(spec.type,spec.model,spec.x,spec.y);
@@ -1289,7 +1292,11 @@ def topology_js(network: CompiledNetwork) -> str:
       if(!moduleAdded)return "ERROR:add_module:"+spec.id+":"+mod.name;
     }}
   }}
-  var links={_json(link_specs)};
+"""
+
+
+def _link_creation_js(network: CompiledNetwork) -> str:
+    return f"""  var links={_json(_topology_link_specs(network))};
   for(var j=0;j<links.length;j++){{
     var link=links[j];
     var left=link.from.split(":");
@@ -1297,6 +1304,33 @@ def topology_js(network: CompiledNetwork) -> str:
     var created=lw.createLink(left[0],left[1],right[0],right[1],link.cable);
     if(!created)return "ERROR:create_link:"+link.from+"->"+link.to;
   }}
+"""
+
+
+def topology_devices_js(network: CompiledNetwork) -> str:
+    return f"""(function(){{
+  var lw={LOGICAL_WORKSPACE};
+  var net=ipc.network();
+{_device_creation_js(network)}
+  return JSON.stringify({{deviceCount:net.getDeviceCount()}});
+}})()"""
+
+
+def topology_links_js(network: CompiledNetwork) -> str:
+    return f"""(function(){{
+  var lw={LOGICAL_WORKSPACE};
+  var net=ipc.network();
+{_link_creation_js(network)}
+  return JSON.stringify({{linkCount:net.getLinkCount()}});
+}})()"""
+
+
+def topology_js(network: CompiledNetwork) -> str:
+    return f"""(function(){{
+  var lw={LOGICAL_WORKSPACE};
+  var net=ipc.network();
+{_device_creation_js(network)}
+{_link_creation_js(network)}
   return JSON.stringify({{
     deviceCount:net.getDeviceCount(),
     linkCount:net.getLinkCount()
