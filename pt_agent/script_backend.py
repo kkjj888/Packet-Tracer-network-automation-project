@@ -699,6 +699,30 @@ def run_ios_cli_js(
     )
 
 
+def run_ios_commands_js(device: str, commands: list[str]) -> str:
+    """Enter one command sequence in privileged mode and return its output."""
+
+    device_text = json.dumps(device, ensure_ascii=False)
+    commands_text = json.dumps(commands, ensure_ascii=False)
+    return f"""(function(){{
+  try{{
+    var d=ipc.network().getDevice({device_text});
+    if(!d)return "ERROR:device_not_found";
+    var cl=d.getCommandLine();
+    var before=Number(String(cl.getOutput()||"").length);
+    var commands={commands_text};
+    for(var i=0;i<commands.length;i++)cl.enterCommand(commands[i]);
+    return JSON.stringify({{
+      commands:commands,
+      outputStart:before,
+      prompt:String(cl.getPrompt()||"")
+    }});
+  }}catch(e){{
+    return "ERROR:"+String(e&&e.message?e.message:e);
+  }}
+}})()"""
+
+
 def terminal_state_js(device: str) -> str:
     device_text = json.dumps(device, ensure_ascii=False)
     return f"""(function(){{

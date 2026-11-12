@@ -63,6 +63,7 @@ from .script_backend import (
     new_project_js,
     open_project_js,
     read_command_output_js,
+    run_ios_commands_js,
     routing_state_js,
     save_project_js,
     set_port_power_js,
@@ -1041,49 +1042,42 @@ def _run_ios_cli(
             f"{label} could not enter privileged mode; prompt={prompt!r}"
         )
 
-    output_parts: list[str] = []
-    prompts: list[dict[str, str]] = []
-    for index, command in enumerate(commands, start=1):
-        dispatch = _logged_command(
-            bridge,
-            audit,
-            f"{label}_{index:02d}_enter",
-            enter_ios_command_js(device, command),
-            timeout=timeout,
-        )
-        if not isinstance(dispatch, dict) or "outputStart" not in dispatch:
-            raise ScriptBridgeError(
-                f"Invalid CLI dispatch for {command!r}: {dispatch!r}"
-            )
-        time.sleep(0.75)
-        readback = _logged_read(
-            bridge,
-            audit,
-            f"{label}_{index:02d}_output",
-            read_command_output_js(device, int(dispatch["outputStart"])),
-            timeout=min(timeout, 12.0),
-        )
-        part = readback.get("output") if isinstance(readback, dict) else None
-        if not isinstance(part, str):
-            raise ScriptBridgeError(
-                f"Invalid CLI readback for {command!r}: {readback!r}"
-            )
-        output_parts.append(part)
-        if CLI_ERROR_RE.search(part):
-            raise ScriptBridgeError(
-                f"{label} command {command!r} reported an error: {part}"
-            )
-        prompts.append(
-            {
-                "command": command,
-                "before": str(dispatch.get("prompt", "")),
-                "after": str(dispatch.get("prompt", "")),
-            }
+    if not commands:
+        return {"commands": [], "output": "", "prompts": []}
+    dispatch = _logged_command(
+        bridge,
+        audit,
+        f"{label}_batch_enter",
+        run_ios_commands_js(device, commands),
+        timeout=timeout,
+    )
+    if not isinstance(dispatch, dict) or "outputStart" not in dispatch:
+        raise ScriptBridgeError(f"Invalid CLI batch dispatch: {dispatch!r}")
+    time.sleep(0.35)
+    readback = _logged_read(
+        bridge,
+        audit,
+        f"{label}_batch_output",
+        read_command_output_js(device, int(dispatch["outputStart"])),
+        timeout=min(timeout, 12.0),
+    )
+    part = readback.get("output") if isinstance(readback, dict) else None
+    if not isinstance(part, str):
+        raise ScriptBridgeError(f"Invalid CLI batch readback: {readback!r}")
+    if CLI_ERROR_RE.search(part):
+        raise ScriptBridgeError(
+            f"{label} batch reported a CLI error: {part}"
         )
     return {
         "commands": commands,
-        "output": "".join(output_parts),
-        "prompts": prompts,
+        "output": part,
+        "prompts": [
+            {
+                "command": f"<batch:{len(commands)}>",
+                "before": str(dispatch.get("prompt", "")),
+                "after": str(dispatch.get("prompt", "")),
+            }
+        ],
     }
 
 
