@@ -3,7 +3,12 @@ from __future__ import annotations
 import unittest
 
 from pt_agent.compiler.base import CommandCompileError
-from pt_agent.compiler.interface import RouterInterface, compile_ipv4_interfaces
+from pt_agent.compiler.interface import (
+    RouterInterface,
+    RouterSubinterface,
+    compile_ipv4_interfaces,
+    compile_vlan_subinterfaces,
+)
 
 
 class InterfaceCommandTests(unittest.TestCase):
@@ -55,6 +60,42 @@ class InterfaceCommandTests(unittest.TestCase):
             compile_ipv4_interfaces(
                 "R1",
                 [RouterInterface("Gi0/0\nreload", "10.0.0.1/30")],
+            )
+
+    def test_compiles_router_on_a_stick(self) -> None:
+        plan = compile_vlan_subinterfaces(
+            "R1",
+            [
+                RouterSubinterface(
+                    "GigabitEthernet0/0",
+                    "GigabitEthernet0/0.10",
+                    10,
+                    "192.168.10.1/24",
+                ),
+                RouterSubinterface(
+                    "GigabitEthernet0/0",
+                    "GigabitEthernet0/0.20",
+                    20,
+                    "192.168.20.1/24",
+                ),
+            ],
+        )
+        self.assertIn("encapsulation dot1Q 10", plan.commands)
+        self.assertIn("encapsulation dot1Q 20", plan.commands)
+        self.assertEqual(plan.commands.count("interface GigabitEthernet0/0"), 1)
+
+    def test_rejects_subinterface_vlan_mismatch_name(self) -> None:
+        with self.assertRaisesRegex(CommandCompileError, "child"):
+            compile_vlan_subinterfaces(
+                "R1",
+                [
+                    RouterSubinterface(
+                        "GigabitEthernet0/0",
+                        "GigabitEthernet0/1.10",
+                        10,
+                        "192.168.10.1/24",
+                    )
+                ],
             )
 
 

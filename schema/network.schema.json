@@ -157,8 +157,35 @@
         },
         "gateway": {
           "$ref": "#/$defs/ipv4"
+        },
+        "parent_port": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dot1q_vlan": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4094
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": ["parent_port"]
+          },
+          "then": {
+            "required": ["dot1q_vlan"]
+          }
+        },
+        {
+          "if": {
+            "required": ["dot1q_vlan"]
+          },
+          "then": {
+            "required": ["parent_port"]
+          }
+        }
+      ]
     },
     "vlan": {
       "type": "object",

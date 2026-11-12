@@ -242,6 +242,26 @@ class _SemanticChecker:
                 )
             ports.add(key)
 
+            dot1q_vlan = item.get("dot1q_vlan")
+            parent_port = item.get("parent_port")
+            if dot1q_vlan is not None:
+                if (
+                    not isinstance(dot1q_vlan, int)
+                    or not self._vlan_is_defined(dot1q_vlan)
+                ):
+                    self.error(
+                        "UNKNOWN_VLAN_REFERENCE",
+                        f"{path}.dot1q_vlan",
+                        f"VLAN {dot1q_vlan} is not defined",
+                    )
+                parent_text = str(parent_port or "")
+                if not port.startswith(f"{parent_text}."):
+                    self.error(
+                        "INVALID_SUBINTERFACE_NAME",
+                        f"{path}.port",
+                        f"{port} must be a child of {parent_text}",
+                    )
+
             try:
                 interface = ipaddress.ip_interface(str(item.get("address", "")))
             except ValueError as exc:
@@ -698,6 +718,7 @@ _ALLOWED_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^hostname [A-Za-z][A-Za-z0-9_-]{0,31}$", re.I),
     re.compile(r"^interface [A-Za-z0-9/._-]+$", re.I),
     re.compile(r"^no shutdown$", re.I),
+    re.compile(r"^encapsulation dot1Q \d{1,4}$", re.I),
     re.compile(r"^ip address (?:\d{1,3}\.){3}\d{1,3} (?:\d{1,3}\.){3}\d{1,3}$", re.I),
     re.compile(r"^vlan \d{1,4}$", re.I),
     re.compile(r"^name [A-Za-z0-9_-]{1,32}$", re.I),

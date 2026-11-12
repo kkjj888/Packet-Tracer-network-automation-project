@@ -14,7 +14,9 @@ from .compiler.acl import (
 from .compiler.base import CommandPlan
 from .compiler.interface import (
     RouterInterface,
+    RouterSubinterface,
     compile_ipv4_interfaces,
+    compile_vlan_subinterfaces,
 )
 from .compiler.ospf import OspfNetwork, compile_ospf_config
 from .compiler.rip import RipConfig, compile_rip_config
@@ -297,19 +299,35 @@ def _compile_router_plans(
     device_types: Mapping[str, str],
 ) -> list[CommandPlan]:
     grouped: dict[str, list[RouterInterface]] = {}
+    subinterfaces: dict[str, list[RouterSubinterface]] = {}
     for item in _as_list(document.get("ipv4")):
         if not isinstance(item, dict):
             continue
         device = str(item["device"])
         if device_types.get(device) != "router":
             continue
-        grouped.setdefault(device, []).append(
-            RouterInterface(str(item["port"]), str(item["address"]))
-        )
-    return [
+        if item.get("dot1q_vlan") is not None:
+            subinterfaces.setdefault(device, []).append(
+                RouterSubinterface(
+                    str(item["parent_port"]),
+                    str(item["port"]),
+                    int(item["dot1q_vlan"]),
+                    str(item["address"]),
+                )
+            )
+        else:
+            grouped.setdefault(device, []).append(
+                RouterInterface(str(item["port"]), str(item["address"]))
+            )
+    plans = [
         compile_ipv4_interfaces(device, interfaces)
         for device, interfaces in grouped.items()
     ]
+    plans.extend(
+        compile_vlan_subinterfaces(device, items)
+        for device, items in subinterfaces.items()
+    )
+    return plans
 
 
 def _compile_acl_plans(
