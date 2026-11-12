@@ -192,7 +192,7 @@ links:
   - from: G02-HQ-ASW-FIN:FastEthernet0/2
     to: G02-HQ-PC-FIN2:FastEthernet0
   - from: G02-HQ-ASW-GST:FastEthernet0/1
-    to: G02-HQ-AP1:Port0
+    to: "G02-HQ-AP1:Port 0"
   - from: G02-HQ-ASW-SRV:FastEthernet0/1
     to: G02-HQ-SRV-WEB:FastEthernet0
   - from: G02-HQ-ASW-SRV:FastEthernet0/2
