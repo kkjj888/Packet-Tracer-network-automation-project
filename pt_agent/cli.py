@@ -2520,7 +2520,7 @@ def command_deploy_dsl(args: argparse.Namespace) -> int:
             bridge,
             audit,
             "dsl_reopen",
-            rounds=1,
+            rounds=args.convergence_rounds,
         )
         report["topology_after_reopen"] = _logged_command(
             bridge,
