@@ -2490,6 +2490,17 @@ def command_deploy_dsl(args: argparse.Namespace) -> int:
             "dsl_deploy",
             rounds=args.convergence_rounds,
         )
+        dhcp_leases: list[object] = []
+        for item in network.dhcp_clients:
+            dhcp_leases.append(
+                _logged_command(
+                    bridge,
+                    audit,
+                    f"dsl_dhcp_lease_{item.device}",
+                    host_ip_state_js(item.device, item.port),
+                )
+            )
+        report["dhcp_leases"] = dhcp_leases
         verification = _run_dsl_verification(
             bridge,
             audit,
