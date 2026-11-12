@@ -93,6 +93,12 @@
         }
       }
     },
+    "link_failures": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/link_failure"
+      }
+    },
     "acls": {
       "type": "array",
       "items": {
@@ -551,6 +557,24 @@
           }
         },
         "outside_interface": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "link_failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "device", "port"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "device": {
+          "$ref": "#/$defs/identifier"
+        },
+        "port": {
           "type": "string",
           "minLength": 1
         }

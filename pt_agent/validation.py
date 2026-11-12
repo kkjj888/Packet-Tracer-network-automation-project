@@ -581,6 +581,30 @@ class _SemanticChecker:
                     f"dhcp_clients[{index}].device",
                     f"{device_id} is not a PC or server",
                 )
+        for index, failure in enumerate(
+            _as_list(self.document.get("link_failures"))
+        ):
+            if not isinstance(failure, dict):
+                continue
+            device_id = str(failure.get("device", ""))
+            port = str(failure.get("port", ""))
+            if device_id not in self.devices:
+                self.error(
+                    "UNKNOWN_DEVICE",
+                    f"link_failures[{index}].device",
+                    f"unknown device {device_id!r}",
+                )
+            if not any(
+                link.get("from") in (f"{device_id}:{port}", f"{device_id}:{port}")
+                or link.get("to") in (f"{device_id}:{port}", f"{device_id}:{port}")
+                for link in _as_list(self.document.get("links"))
+                if isinstance(link, dict)
+            ):
+                self.error(
+                    "FAILURE_PORT_NOT_LINKED",
+                    f"link_failures[{index}].port",
+                    f"{device_id}:{port} is not used by a link",
+                )
 
     def _next_hop_reachable(
         self,

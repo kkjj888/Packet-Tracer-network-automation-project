@@ -60,6 +60,7 @@ from .script_backend import (
     read_command_output_js,
     routing_state_js,
     save_project_js,
+    set_port_power_js,
     start_ping_js,
     switch_vlan_state_js,
     terminal_state_js,
@@ -2523,6 +2524,32 @@ def command_deploy_dsl(args: argparse.Namespace) -> int:
             )
         report["nat_translations"] = nat_translations
 
+        failure_actions: list[object] = []
+        for item in network.link_failures:
+            failure_actions.append(
+                _logged_command(
+                    bridge,
+                    audit,
+                    f"dsl_link_failure_{item.name}",
+                    set_port_power_js(item.device, item.port, False),
+                )
+            )
+        report["link_failures"] = failure_actions
+        if network.link_failures:
+            _wait_for_protocol_convergence(
+                bridge,
+                audit,
+                "dsl_failure_convergence",
+                rounds=args.convergence_rounds,
+            )
+            report["verification_after_failure"] = _run_dsl_verification(
+                bridge,
+                audit,
+                network,
+                label="dsl_verify_after_failure",
+                ping_timeout=args.ping_timeout,
+            )
+
         saved = _save_and_wait(
             bridge,
             audit,
@@ -2596,8 +2623,13 @@ def command_deploy_dsl(args: argparse.Namespace) -> int:
         )
         report["verification_after_reopen"] = verification_after
 
-        passed = all(item.get("passed") for item in verification) and all(
-            item.get("passed") for item in verification_after
+        passed = (
+            all(item.get("passed") for item in verification)
+            and all(item.get("passed") for item in verification_after)
+            and all(
+                item.get("passed")
+                for item in report.get("verification_after_failure", [])
+            )
         )
         report["status"] = "passed" if passed else "failed"
         audit.record("dsl_deploy_finished", status=report["status"])

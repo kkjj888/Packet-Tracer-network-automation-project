@@ -1,0 +1,100 @@
+version: 1
+project: floating-static-failover
+
+devices:
+  - id: r1
+    type: router
+    model: "2911"
+  - id: r2
+    type: router
+    model: "2911"
+  - id: r3
+    type: router
+    model: "2911"
+  - id: sw1
+    type: switch
+    model: 2960-24TT
+  - id: pc1
+    type: pc
+    model: PC-PT
+  - id: server1
+    type: server
+    model: Server-PT
+
+links:
+  - from: pc1:FastEthernet0
+    to: r1:GigabitEthernet0/0
+  - from: r1:GigabitEthernet0/1
+    to: r2:GigabitEthernet0/1
+  - from: r1:GigabitEthernet0/2
+    to: r3:GigabitEthernet0/1
+  - from: r2:GigabitEthernet0/0
+    to: sw1:GigabitEthernet0/1
+  - from: r3:GigabitEthernet0/0
+    to: sw1:GigabitEthernet0/2
+  - from: server1:FastEthernet0
+    to: sw1:FastEthernet0/1
+
+ipv4:
+  - device: r1
+    port: GigabitEthernet0/0
+    address: 10.10.10.1/24
+  - device: r1
+    port: GigabitEthernet0/1
+    address: 10.10.0.1/30
+  - device: r1
+    port: GigabitEthernet0/2
+    address: 10.10.1.1/30
+  - device: r2
+    port: GigabitEthernet0/1
+    address: 10.10.0.2/30
+  - device: r2
+    port: GigabitEthernet0/0
+    address: 10.10.20.2/24
+  - device: r3
+    port: GigabitEthernet0/1
+    address: 10.10.1.2/30
+  - device: r3
+    port: GigabitEthernet0/0
+    address: 10.10.20.3/24
+  - device: pc1
+    port: FastEthernet0
+    address: 10.10.10.10/24
+    gateway: 10.10.10.1
+  - device: server1
+    port: FastEthernet0
+    address: 10.10.20.10/24
+    gateway: 10.10.20.2
+
+routing:
+  static:
+    - device: r1
+      network: 0.0.0.0/0
+      next_hop: 10.10.0.2
+      interface: GigabitEthernet0/1
+      admin_distance: 1
+    - device: r1
+      network: 0.0.0.0/0
+      next_hop: 10.10.1.2
+      interface: GigabitEthernet0/2
+      admin_distance: 10
+    - device: r2
+      network: 10.10.10.0/24
+      next_hop: 10.10.0.1
+      interface: GigabitEthernet0/1
+    - device: r3
+      network: 10.10.10.0/24
+      next_hop: 10.10.1.1
+      interface: GigabitEthernet0/1
+
+link_failures:
+  - name: primary-link-down
+    device: r1
+    port: GigabitEthernet0/1
+
+verification:
+  connectivity:
+    - name: floating-static-path
+      source: pc1
+      destination: server1
+      expected: pass

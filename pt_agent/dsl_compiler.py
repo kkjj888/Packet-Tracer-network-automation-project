@@ -79,6 +79,13 @@ class DhcpClientConfig:
 
 
 @dataclass(frozen=True)
+class LinkFailure:
+    name: str
+    device: str
+    port: str
+
+
+@dataclass(frozen=True)
 class VerificationSpec:
     name: str
     source: str
@@ -94,6 +101,7 @@ class CompiledNetwork:
     links: tuple[TopologyLink, ...]
     host_addresses: tuple[HostAddressConfig, ...]
     dhcp_clients: tuple[DhcpClientConfig, ...]
+    link_failures: tuple[LinkFailure, ...]
     command_plans: tuple[CommandPlan, ...]
     verification: tuple[VerificationSpec, ...]
 
@@ -128,6 +136,14 @@ class CompiledNetwork:
             "dhcp_clients": [
                 {"device": item.device, "port": item.port}
                 for item in self.dhcp_clients
+            ],
+            "link_failures": [
+                {
+                    "name": item.name,
+                    "device": item.device,
+                    "port": item.port,
+                }
+                for item in self.link_failures
             ],
             "command_plans": [
                 {
@@ -168,6 +184,7 @@ def compile_network_dsl(
     links = tuple(_compile_links(document))
     host_addresses = tuple(_compile_host_addresses(document, device_types))
     dhcp_clients = tuple(_compile_dhcp_clients(document, device_types))
+    link_failures = tuple(_compile_link_failures(document))
     plans = tuple(
         [
             *_compile_switch_plans(document, device_types),
@@ -186,6 +203,7 @@ def compile_network_dsl(
         links=links,
         host_addresses=host_addresses,
         dhcp_clients=dhcp_clients,
+        link_failures=link_failures,
         command_plans=plans,
         verification=tuple(_compile_verification(document)),
     )
@@ -268,6 +286,20 @@ def _compile_dhcp_clients(
             )
         result.append(DhcpClientConfig(device, str(item["port"])))
     return result
+
+
+def _compile_link_failures(
+    document: Mapping[str, object],
+) -> list[LinkFailure]:
+    return [
+        LinkFailure(
+            str(item["name"]),
+            str(item["device"]),
+            str(item["port"]),
+        )
+        for item in _as_list(document.get("link_failures"))
+        if isinstance(item, dict)
+    ]
 
 
 def _compile_dhcp_plans(

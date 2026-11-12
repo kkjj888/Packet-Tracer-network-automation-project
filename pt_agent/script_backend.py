@@ -143,6 +143,30 @@ def configure_dhcp_client_js(device: str, port: str) -> str:
 }})()"""
 
 
+def set_port_power_js(device: str, port: str, powered: bool) -> str:
+    device_text = json.dumps(device, ensure_ascii=False)
+    port_text = json.dumps(port, ensure_ascii=False)
+    powered_text = "true" if powered else "false"
+    return f"""(function(){{
+  try{{
+    var d=ipc.network().getDevice({device_text});
+    if(!d)return "ERROR:device_not_found";
+    var p=d.getPort({port_text});
+    if(!p)return "ERROR:port_not_found";
+    p.setPower({powered_text});
+    return JSON.stringify({{
+      device:{device_text},
+      port:{port_text},
+      power:!!p.getPower(),
+      portUp:!!p.isPortUp(),
+      protocolUp:!!p.isProtocolUp()
+    }});
+  }}catch(e){{
+    return "ERROR:"+String(e&&e.message?e.message:e);
+  }}
+}})()"""
+
+
 def configure_router_ipv4_js(
     device: str, interfaces: dict[str, dict[str, str]]
 ) -> str:

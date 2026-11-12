@@ -11,6 +11,7 @@ from pt_agent.script_backend import (
     minimal_topology_js,
     routing_state_js,
     save_project_js,
+    set_port_power_js,
     topology_state_js,
 )
 from pt_agent.script_bridge import decode_result_hex, wrap_expression
@@ -141,6 +142,11 @@ class ScriptBridgeTests(unittest.TestCase):
         self.assertIn("routingNetworks", script)
         self.assertIn("staticRoutes", script)
         self.assertIn("adminDistance", script)
+
+    def test_port_failure_uses_structured_power_control(self) -> None:
+        script = set_port_power_js("R1", "GigabitEthernet0/1", False)
+        self.assertIn("setPower(false)", script)
+        self.assertIn("isPortUp", script)
 
     def test_rip_version_commands(self) -> None:
         commands = rip_config_commands(2, auto_summary=False)
