@@ -34,7 +34,6 @@ class GreTunnel:
         return [
             f"interface {interface}",
             f"ip address {address.ip} {address.netmask}",
-            f"mtu {self.mtu}",
             f"tunnel source {source}",
             f"tunnel destination {destination}",
             "no shutdown",
