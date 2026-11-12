@@ -2644,52 +2644,58 @@ def command_deploy_dsl(args: argparse.Namespace) -> int:
     try:
         bridge.start()
         bridge.wait_for_extension(timeout=args.connect_timeout)
-        _logged_command(
-            bridge,
-            audit,
-            "dsl_new_project",
-            new_project_js(),
-        )
-        report["topology_devices"] = _logged_command(
-            bridge,
-            audit,
-            "dsl_topology_devices",
-            topology_devices_js(network),
-        )
-        time.sleep(2)
-        report["topology_links"] = _logged_command(
-            bridge,
-            audit,
-            "dsl_topology_links",
-            topology_links_js(network),
-        )
-        _logged_command(
-            bridge,
-            audit,
-            "dsl_fast_forward_after_topology",
-            fast_forward_js(),
-        )
-        time.sleep(2)
-
-        host_readbacks: list[object] = []
-        for item in network.host_addresses:
-            interface = ipaddress.ip_interface(item.address)
-            host_readbacks.append(
-                _configure_dsl_host_with_retry(
-                    bridge,
-                    audit,
-                    label=f"dsl_host_{item.device}",
-                    device=item.device,
-                    port=item.port,
-                    ip=str(interface.ip),
-                    mask=str(interface.netmask),
-                    gateway=item.gateway,
-                )
+        resume_from_plan = getattr(args, "resume_from_plan", None)
+        if resume_from_plan is None:
+            _logged_command(
+                bridge,
+                audit,
+                "dsl_new_project",
+                new_project_js(),
             )
-        report["host_addresses"] = host_readbacks
+            report["topology_devices"] = _logged_command(
+                bridge,
+                audit,
+                "dsl_topology_devices",
+                topology_devices_js(network),
+            )
+            time.sleep(2)
+            report["topology_links"] = _logged_command(
+                bridge,
+                audit,
+                "dsl_topology_links",
+                topology_links_js(network),
+            )
+            _logged_command(
+                bridge,
+                audit,
+                "dsl_fast_forward_after_topology",
+                fast_forward_js(),
+            )
+            time.sleep(2)
+
+            host_readbacks: list[object] = []
+            for item in network.host_addresses:
+                interface = ipaddress.ip_interface(item.address)
+                host_readbacks.append(
+                    _configure_dsl_host_with_retry(
+                        bridge,
+                        audit,
+                        label=f"dsl_host_{item.device}",
+                        device=item.device,
+                        port=item.port,
+                        ip=str(interface.ip),
+                        mask=str(interface.netmask),
+                        gateway=item.gateway,
+                    )
+                )
+            report["host_addresses"] = host_readbacks
+        else:
+            report["resume_from_plan"] = int(resume_from_plan)
 
         command_results: list[object] = []
         for index, plan in enumerate(network.command_plans, start=1):
+            if resume_from_plan is not None and index < int(resume_from_plan):
+                continue
             if plan.module == "interface-ipv4":
                 interface_target = next(
                     (
@@ -3060,6 +3066,11 @@ def build_parser() -> argparse.ArgumentParser:
     deploy_dsl.add_argument("--traceroute-timeout", type=float, default=40.0)
     deploy_dsl.add_argument("--save-timeout", type=float, default=20.0)
     deploy_dsl.add_argument("--convergence-rounds", type=int, default=3)
+    deploy_dsl.add_argument(
+        "--resume-from-plan",
+        type=int,
+        help="Reuse the current topology and replay command plans from this index",
+    )
     deploy_dsl.set_defaults(func=command_deploy_dsl)
 
     launch = subparsers.add_parser(
