@@ -15,6 +15,7 @@ from jsonschema import Draft202012Validator
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SCHEMA_PATH = PROJECT_ROOT / "schema" / "network.schema.json"
+DEFAULT_VLAN_IDS = frozenset({1, 1002, 1003, 1004, 1005})
 
 
 @dataclass(frozen=True)
@@ -362,7 +363,7 @@ class _SemanticChecker:
                         f"{path}.vlan",
                         "an access port requires a VLAN",
                     )
-                elif vlan_id not in self.vlans:
+                elif not self._vlan_is_defined(vlan_id):
                     self.error(
                         "UNKNOWN_VLAN_REFERENCE",
                         f"{path}.vlan",
@@ -371,19 +372,28 @@ class _SemanticChecker:
             elif mode == "trunk":
                 for field in ("native_vlan",):
                     vlan_id = item.get(field)
-                    if isinstance(vlan_id, int) and vlan_id not in self.vlans:
+                    if (
+                        isinstance(vlan_id, int)
+                        and not self._vlan_is_defined(vlan_id)
+                    ):
                         self.error(
                             "UNKNOWN_VLAN_REFERENCE",
                             f"{path}.{field}",
                             f"VLAN {vlan_id} is not defined",
                         )
                 for allowed in _as_list(item.get("allowed_vlans")):
-                    if isinstance(allowed, int) and allowed not in self.vlans:
+                    if (
+                        isinstance(allowed, int)
+                        and not self._vlan_is_defined(allowed)
+                    ):
                         self.error(
                             "UNKNOWN_VLAN_REFERENCE",
                             f"{path}.allowed_vlans",
                             f"VLAN {allowed} is not defined",
                         )
+
+    def _vlan_is_defined(self, vlan_id: int) -> bool:
+        return vlan_id in self.vlans or vlan_id in DEFAULT_VLAN_IDS
 
     def _router_device(self, value: object, path: str) -> bool:
         device_id = str(value)
@@ -682,6 +692,7 @@ _DANGEROUS_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
 _ALLOWED_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^enable$", re.I),
     re.compile(r"^configure terminal$", re.I),
+    re.compile(r"^exit$", re.I),
     re.compile(r"^end$", re.I),
     re.compile(r"^write memory$", re.I),
     re.compile(r"^hostname [A-Za-z][A-Za-z0-9_-]{0,31}$", re.I),
