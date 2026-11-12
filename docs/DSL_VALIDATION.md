@@ -113,7 +113,7 @@ python -m pt_agent deploy-dsl examples\ripv2-routing.yaml
 
 The campus example verifies VLAN/Trunk isolation. The OSPF example verifies
 cross-subnet routing through YAML-generated interface and OSPF commands.
-All six examples validate, compile, deploy to local Packet Tracer, save,
+All ten examples validate, compile, deploy to local Packet Tracer, save,
 reopen, and repeat their positive or negative connectivity assertions.
 
 ## Dependency Setup
