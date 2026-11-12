@@ -710,7 +710,12 @@ _ALLOWED_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^router (?:rip|ospf(?: \d{1,5})?)$", re.I),
     re.compile(r"^version [12]$", re.I),
     re.compile(r"^(?:no )?auto-summary$", re.I),
-    re.compile(r"^network (?:\d{1,3}\.){3}\d{1,3}(?: (?:0|[1-9]\d*) (?:0\.0\.0\.0|(?:0\.)?(?:0\.)?\d{1,3}\.\d{1,3}) area (?:0|[1-9]\d*))?$", re.I),
+    re.compile(r"^network (?:\d{1,3}\.){3}\d{1,3}$", re.I),
+    re.compile(
+        r"^network (?:\d{1,3}\.){3}\d{1,3} "
+        r"(?:\d{1,3}\.){3}\d{1,3} area (?:0|[1-9]\d*)$",
+        re.I,
+    ),
     re.compile(
         r"^ip route (?:\d{1,3}\.){3}\d{1,3} "
         r"(?:\d{1,3}\.){3}\d{1,3} "
