@@ -845,7 +845,7 @@ acls:
         protocol: tcp
         source: {kind: network, address: 10.22.4.32, wildcard: 0.0.0.15}
         destination: {kind: host, address: 10.22.0.178}
-        destination_port_eq: https
+        destination_port_eq: 443
       - action: permit
         protocol: icmp
         source: {kind: network, address: 10.22.4.32, wildcard: 0.0.0.15}
@@ -876,7 +876,7 @@ acls:
         protocol: tcp
         source: {kind: network, address: 10.22.0.160, wildcard: 0.0.0.15}
         destination: {kind: host, address: 10.22.0.178}
-        destination_port_eq: https
+        destination_port_eq: 443
       - action: permit
         protocol: udp
         source: {kind: network, address: 10.22.0.160, wildcard: 0.0.0.15}
