@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import re
 import subprocess
@@ -13,7 +14,17 @@ from pathlib import Path
 
 from .audit import JsonlAuditLogger
 from .diagnostics import diagnose_host_address
-from .dsl_compiler import DslCompileError, compile_network_dsl
+from .dsl_compiler import (
+    CompiledNetwork,
+    DslCompileError,
+    compile_network_dsl,
+    topology_js,
+)
+from .dsl_deployment import (
+    DslDeploymentError,
+    destination_ip,
+    evaluate_verification,
+)
 from .config_suite import (
     acl_apply_commands,
     acl_router_config_commands,
@@ -1573,6 +1584,39 @@ def _prepare_reopened_routers(
         )
 
 
+def _run_dsl_verification(
+    bridge: PTBridgeServer,
+    audit: JsonlAuditLogger,
+    network: CompiledNetwork,
+    *,
+    label: str,
+    ping_timeout: float,
+) -> list[dict[str, object]]:
+    results: list[dict[str, object]] = []
+    for index, spec in enumerate(network.verification, start=1):
+        address = destination_ip(network, spec.destination)
+        if spec.expected == "pass":
+            _run_ping(
+                bridge,
+                audit,
+                label=f"{label}_{index:02d}_warmup",
+                device=spec.source,
+                destination=address,
+                timeout=ping_timeout,
+            )
+        ping = _run_ping(
+            bridge,
+            audit,
+            label=f"{label}_{index:02d}_verify",
+            device=spec.source,
+            destination=address,
+            timeout=ping_timeout,
+        )
+        result = evaluate_verification(spec, ping, address)
+        results.append(result.to_dict())
+    return results
+
+
 def _wait_for_protocol_convergence(
     bridge: PTBridgeServer,
     audit: JsonlAuditLogger,
@@ -2328,6 +2372,207 @@ def command_trunk_suite_demo(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_deploy_dsl(args: argparse.Namespace) -> int:
+    try:
+        document = load_yaml_document(args.path)
+        network = compile_network_dsl(document)
+    except (DslCompileError, DslDeploymentError, ValueError) as exc:
+        _json_print({"deployed": False, "error": str(exc)})
+        return 1
+
+    artifacts = PROJECT_ROOT / "artifacts"
+    artifacts.mkdir(parents=True, exist_ok=True)
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", network.project).strip("-")
+    slug = slug or "network"
+    project_path = (artifacts / f"dsl-{slug}.pkt").resolve()
+    report_path = (artifacts / f"dsl-{slug}.json").resolve()
+    audit_path = (artifacts / f"dsl-{slug}-audit.jsonl").resolve()
+    run_id = f"dsl-deploy-{uuid.uuid4().hex[:12]}"
+    audit = JsonlAuditLogger(audit_path, run_id)
+    bridge = PTBridgeServer(
+        port=args.bridge_port,
+        result_timeout=args.result_timeout,
+    )
+    report: dict[str, object] = {
+        "run_id": run_id,
+        "project": network.project,
+        "status": "starting",
+        "project_path": str(project_path),
+        "audit_path": str(audit_path),
+        "plan": network.to_dict(),
+    }
+    audit.record("dsl_deploy_started", project=network.project)
+
+    try:
+        bridge.start()
+        bridge.wait_for_extension(timeout=args.connect_timeout)
+        _logged_command(
+            bridge,
+            audit,
+            "dsl_new_project",
+            new_project_js(),
+        )
+        report["topology"] = _logged_command(
+            bridge,
+            audit,
+            "dsl_topology",
+            topology_js(network),
+        )
+        _logged_command(
+            bridge,
+            audit,
+            "dsl_fast_forward_after_topology",
+            fast_forward_js(),
+        )
+        time.sleep(1)
+
+        host_readbacks: list[object] = []
+        for item in network.host_addresses:
+            interface = ipaddress.ip_interface(item.address)
+            host_readbacks.append(
+                _logged_command(
+                    bridge,
+                    audit,
+                    f"dsl_host_{item.device}",
+                    configure_host_ip_js(
+                        item.device,
+                        item.port,
+                        str(interface.ip),
+                        str(interface.netmask),
+                        item.gateway,
+                    ),
+                )
+            )
+        report["host_addresses"] = host_readbacks
+
+        command_results: list[object] = []
+        for index, plan in enumerate(network.command_plans, start=1):
+            command_results.append(
+                _run_ios_cli(
+                    bridge,
+                    audit,
+                    label=f"dsl_plan_{index:02d}_{plan.module}",
+                    device=plan.device,
+                    commands=plan.as_list(),
+                    timeout=args.cli_timeout,
+                    prepare_boot_dialog=True,
+                )
+            )
+        report["command_plans"] = command_results
+
+        for device in network.devices:
+            if device.device_type == "router":
+                _run_ios_cli(
+                    bridge,
+                    audit,
+                    label=f"dsl_prepare_{device.device_id}",
+                    device=device.device_id,
+                    commands=[],
+                    timeout=args.cli_timeout,
+                    prepare_boot_dialog=True,
+                )
+        _wait_for_protocol_convergence(
+            bridge,
+            audit,
+            "dsl_deploy",
+            rounds=args.convergence_rounds,
+        )
+        verification = _run_dsl_verification(
+            bridge,
+            audit,
+            network,
+            label="dsl_verify",
+            ping_timeout=args.ping_timeout,
+        )
+        report["verification"] = verification
+
+        saved = _save_and_wait(
+            bridge,
+            audit,
+            project_path,
+            args.save_timeout,
+        )
+        report["saved_file"] = saved
+        _logged_command(
+            bridge,
+            audit,
+            "dsl_new_for_reopen",
+            new_project_js(),
+        )
+        _logged_command(
+            bridge,
+            audit,
+            "dsl_reopen",
+            open_project_js(project_path),
+        )
+        for device in network.devices:
+            if device.device_type == "router":
+                _run_ios_cli(
+                    bridge,
+                    audit,
+                    label=f"dsl_reopen_prepare_{device.device_id}",
+                    device=device.device_id,
+                    commands=[],
+                    timeout=args.cli_timeout,
+                    prepare_boot_dialog=True,
+                )
+        _wait_for_protocol_convergence(
+            bridge,
+            audit,
+            "dsl_reopen",
+            rounds=1,
+        )
+        report["topology_after_reopen"] = _logged_command(
+            bridge,
+            audit,
+            "dsl_topology_after_reopen",
+            topology_state_js(),
+        )
+        reopened_hosts: list[object] = []
+        for item in network.host_addresses:
+            reopened_hosts.append(
+                _logged_command(
+                    bridge,
+                    audit,
+                    f"dsl_reopen_host_{item.device}",
+                    host_ip_state_js(item.device, item.port),
+                )
+            )
+        report["host_addresses_after_reopen"] = reopened_hosts
+        verification_after = _run_dsl_verification(
+            bridge,
+            audit,
+            network,
+            label="dsl_verify_after_reopen",
+            ping_timeout=args.ping_timeout,
+        )
+        report["verification_after_reopen"] = verification_after
+
+        passed = all(item.get("passed") for item in verification) and all(
+            item.get("passed") for item in verification_after
+        )
+        report["status"] = "passed" if passed else "failed"
+        audit.record("dsl_deploy_finished", status=report["status"])
+        if not passed:
+            raise ScriptBridgeError(
+                "DSL verification failed before or after reopen"
+            )
+    except Exception as exc:
+        report["status"] = "failed"
+        report["error"] = f"{type(exc).__name__}: {exc}"
+        audit.record("dsl_deploy_failed", error=report["error"])
+        raise
+    finally:
+        bridge.stop()
+        report_path.write_text(
+            json.dumps(report, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+
+    _json_print(report)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Packet Tracer backend bootstrap for the LLM PT project"
@@ -2360,6 +2605,20 @@ def build_parser() -> argparse.ArgumentParser:
     compile_dsl.add_argument("path")
     compile_dsl.add_argument("--output")
     compile_dsl.set_defaults(func=command_compile_dsl)
+
+    deploy_dsl = subparsers.add_parser(
+        "deploy-dsl",
+        help="Validate, compile, deploy, save, reopen, and verify a YAML network",
+    )
+    deploy_dsl.add_argument("path")
+    deploy_dsl.add_argument("--bridge-port", type=int, default=54321)
+    deploy_dsl.add_argument("--result-timeout", type=float, default=30.0)
+    deploy_dsl.add_argument("--connect-timeout", type=float, default=90.0)
+    deploy_dsl.add_argument("--cli-timeout", type=float, default=45.0)
+    deploy_dsl.add_argument("--ping-timeout", type=float, default=25.0)
+    deploy_dsl.add_argument("--save-timeout", type=float, default=20.0)
+    deploy_dsl.add_argument("--convergence-rounds", type=int, default=3)
+    deploy_dsl.set_defaults(func=command_deploy_dsl)
 
     launch = subparsers.add_parser(
         "launch-gui", help="Launch Packet Tracer with the Script Module workflow"
