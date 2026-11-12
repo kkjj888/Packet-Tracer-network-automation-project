@@ -1,0 +1,53 @@
+version: 1
+project: dhcp-lan
+
+devices:
+  - id: r1
+    type: router
+    model: "2911"
+  - id: sw1
+    type: switch
+    model: 2960-24TT
+  - id: pc1
+    type: pc
+    model: PC-PT
+  - id: server1
+    type: server
+    model: Server-PT
+
+links:
+  - from: pc1:FastEthernet0
+    to: sw1:FastEthernet0/1
+  - from: server1:FastEthernet0
+    to: sw1:FastEthernet0/2
+  - from: r1:GigabitEthernet0/0
+    to: sw1:GigabitEthernet0/1
+
+ipv4:
+  - device: r1
+    port: GigabitEthernet0/0
+    address: 192.168.10.1/24
+  - device: server1
+    port: FastEthernet0
+    address: 192.168.10.10/24
+    gateway: 192.168.10.1
+
+dhcp:
+  pools:
+    - name: LAN
+      device: r1
+      network: 192.168.10.0/24
+      default_router: 192.168.10.1
+      dns_servers: [192.168.10.1]
+      excluded: [192.168.10.1, 192.168.10.10]
+
+dhcp_clients:
+  - device: pc1
+    port: FastEthernet0
+
+verification:
+  connectivity:
+    - name: dhcp-client-to-server
+      source: pc1
+      destination: server1
+      expected: pass

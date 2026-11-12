@@ -119,6 +119,30 @@ def host_ip_state_js(device: str, port: str) -> str:
 }})()"""
 
 
+def configure_dhcp_client_js(device: str, port: str) -> str:
+    device_text = json.dumps(device, ensure_ascii=False)
+    port_text = json.dumps(port, ensure_ascii=False)
+    return f"""(function(){{
+  try{{
+    var d=ipc.network().getDevice({device_text});
+    if(!d)return "ERROR:device_not_found";
+    try{{d.setDhcpFlag(true);}}catch(e){{}}
+    var p=d.getPort({port_text});
+    if(!p)return "ERROR:port_not_found";
+    p.setDhcpClientFlag(true);
+    return JSON.stringify({{
+      device:{device_text},
+      port:{port_text},
+      dhcp:!!p.isDhcpClientOn(),
+      ip:String(p.getIpAddress()),
+      mask:String(p.getSubnetMask())
+    }});
+  }}catch(e){{
+    return "ERROR:"+String(e&&e.message?e.message:e);
+  }}
+}})()"""
+
+
 def configure_router_ipv4_js(
     device: str, interfaces: dict[str, dict[str, str]]
 ) -> str:

@@ -43,6 +43,7 @@ from .config_suite import (
 )
 from .script_backend import (
     acl_state_js,
+    configure_dhcp_client_js,
     configure_host_ip_js,
     configure_acl_js,
     configure_router_ipv4_js,
@@ -2460,6 +2461,18 @@ def command_deploy_dsl(args: argparse.Namespace) -> int:
             )
         report["command_plans"] = command_results
 
+        dhcp_clients: list[object] = []
+        for item in network.dhcp_clients:
+            dhcp_clients.append(
+                _logged_command(
+                    bridge,
+                    audit,
+                    f"dsl_dhcp_client_{item.device}",
+                    configure_dhcp_client_js(item.device, item.port),
+                )
+            )
+        report["dhcp_clients"] = dhcp_clients
+
         for device in network.devices:
             if device.device_type == "router":
                 _run_ios_cli(
@@ -2539,6 +2552,17 @@ def command_deploy_dsl(args: argparse.Namespace) -> int:
                 )
             )
         report["host_addresses_after_reopen"] = reopened_hosts
+        reopened_dhcp_clients: list[object] = []
+        for item in network.dhcp_clients:
+            reopened_dhcp_clients.append(
+                _logged_command(
+                    bridge,
+                    audit,
+                    f"dsl_reopen_dhcp_client_{item.device}",
+                    host_ip_state_js(item.device, item.port),
+                )
+            )
+        report["dhcp_clients_after_reopen"] = reopened_dhcp_clients
         verification_after = _run_dsl_verification(
             bridge,
             audit,

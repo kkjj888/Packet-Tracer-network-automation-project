@@ -63,6 +63,24 @@
         }
       }
     },
+    "dhcp": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pools": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/dhcp_pool"
+          }
+        }
+      }
+    },
+    "dhcp_clients": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/dhcp_client"
+      }
+    },
     "acls": {
       "type": "array",
       "items": {
@@ -439,6 +457,54 @@
         },
         "protocol": {
           "const": "ping"
+        }
+      }
+    },
+    "dhcp_pool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "device", "network", "default_router"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,31}$"
+        },
+        "device": {
+          "$ref": "#/$defs/identifier"
+        },
+        "network": {
+          "$ref": "#/$defs/ipv4_cidr"
+        },
+        "default_router": {
+          "$ref": "#/$defs/ipv4"
+        },
+        "dns_servers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ipv4"
+          },
+          "uniqueItems": true
+        },
+        "excluded": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ipv4"
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "dhcp_client": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["device", "port"],
+      "properties": {
+        "device": {
+          "$ref": "#/$defs/identifier"
+        },
+        "port": {
+          "type": "string",
+          "minLength": 1
         }
       }
     }

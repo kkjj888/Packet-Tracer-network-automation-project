@@ -149,6 +149,7 @@ class _SemanticChecker:
         self._check_links()
         self._check_ipv4()
         self._check_vlans()
+        self._check_dhcp()
         self._check_static_routes()
         self._check_rip()
         self._check_ospf()
@@ -469,6 +470,75 @@ class _SemanticChecker:
                     ),
                 )
 
+    def _check_dhcp(self) -> None:
+        dhcp = self.document.get("dhcp")
+        if isinstance(dhcp, dict):
+            for index, pool in enumerate(_as_list(dhcp.get("pools"))):
+                if not isinstance(pool, dict):
+                    continue
+                path = f"dhcp.pools[{index}]"
+                device_id = str(pool.get("device", ""))
+                if not self._router_device(device_id, f"{path}.device"):
+                    continue
+                try:
+                    network = ipaddress.ip_network(
+                        str(pool.get("network", "")),
+                        strict=True,
+                    )
+                    default_router = ipaddress.ip_address(
+                        str(pool.get("default_router", ""))
+                    )
+                except ValueError as exc:
+                    self.error("INVALID_DHCP_POOL", path, str(exc))
+                    continue
+                if default_router not in network:
+                    self.error(
+                        "DHCP_ROUTER_OUTSIDE_NETWORK",
+                        f"{path}.default_router",
+                        f"{default_router} is outside {network}",
+                    )
+                if not self._network_reachable(device_id, network):
+                    self.error(
+                        "DHCP_NETWORK_NOT_CONNECTED",
+                        f"{path}.network",
+                        f"{network} has no interface on {device_id}",
+                    )
+                for item_index, value in enumerate(_as_list(pool.get("excluded"))):
+                    try:
+                        address = ipaddress.ip_address(str(value))
+                    except ValueError as exc:
+                        self.error(
+                            "INVALID_DHCP_EXCLUSION",
+                            f"{path}.excluded[{item_index}]",
+                            str(exc),
+                        )
+                        continue
+                    if address not in network:
+                        self.error(
+                            "DHCP_EXCLUSION_OUTSIDE_NETWORK",
+                            f"{path}.excluded[{item_index}]",
+                            f"{address} is outside {network}",
+                        )
+        for index, client in enumerate(
+            _as_list(self.document.get("dhcp_clients"))
+        ):
+            if not isinstance(client, dict):
+                continue
+            device_id = str(client.get("device", ""))
+            device = self.devices.get(device_id)
+            if device is None:
+                self.error(
+                    "UNKNOWN_DEVICE",
+                    f"dhcp_clients[{index}].device",
+                    f"unknown device {device_id!r}",
+                )
+            elif device.get("type") not in ("pc", "server"):
+                self.error(
+                    "DHCP_CLIENT_REQUIRES_HOST",
+                    f"dhcp_clients[{index}].device",
+                    f"{device_id} is not a PC or server",
+                )
+
     def _next_hop_reachable(
         self,
         device_id: str,
@@ -734,6 +804,11 @@ _ALLOWED_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^network (?:\d{1,3}\.){3}\d{1,3}$", re.I),
     re.compile(
         r"^network (?:\d{1,3}\.){3}\d{1,3} "
+        r"(?:\d{1,3}\.){3}\d{1,3}$",
+        re.I,
+    ),
+    re.compile(
+        r"^network (?:\d{1,3}\.){3}\d{1,3} "
         r"(?:\d{1,3}\.){3}\d{1,3} area (?:0|[1-9]\d*)$",
         re.I,
     ),
@@ -741,6 +816,18 @@ _ALLOWED_PATTERNS: tuple[re.Pattern[str], ...] = (
         r"^ip route (?:\d{1,3}\.){3}\d{1,3} "
         r"(?:\d{1,3}\.){3}\d{1,3} "
         r"(?:\d{1,3}\.){3}\d{1,3}(?: \d{1,3})?$",
+        re.I,
+    ),
+    re.compile(
+        r"^ip dhcp excluded-address (?:\d{1,3}\.){3}\d{1,3} "
+        r"(?:\d{1,3}\.){3}\d{1,3}$",
+        re.I,
+    ),
+    re.compile(r"^ip dhcp pool [A-Za-z][A-Za-z0-9_-]{0,31}$", re.I),
+    re.compile(r"^default-router (?:\d{1,3}\.){3}\d{1,3}$", re.I),
+    re.compile(
+        r"^dns-server (?:\d{1,3}\.){3}\d{1,3}"
+        r"(?: (?:\d{1,3}\.){3}\d{1,3})*$",
         re.I,
     ),
     re.compile(r"^show [A-Za-z0-9/|._ -]+$", re.I),

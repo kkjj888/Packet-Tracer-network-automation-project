@@ -12,6 +12,7 @@ from .compiler.acl import (
     compile_acl_config,
 )
 from .compiler.base import CommandPlan
+from .compiler.dhcp import DhcpPool, compile_dhcp_config
 from .compiler.interface import (
     RouterInterface,
     RouterSubinterface,
@@ -71,6 +72,12 @@ class HostAddressConfig:
 
 
 @dataclass(frozen=True)
+class DhcpClientConfig:
+    device: str
+    port: str
+
+
+@dataclass(frozen=True)
 class VerificationSpec:
     name: str
     source: str
@@ -85,6 +92,7 @@ class CompiledNetwork:
     devices: tuple[TopologyDevice, ...]
     links: tuple[TopologyLink, ...]
     host_addresses: tuple[HostAddressConfig, ...]
+    dhcp_clients: tuple[DhcpClientConfig, ...]
     command_plans: tuple[CommandPlan, ...]
     verification: tuple[VerificationSpec, ...]
 
@@ -115,6 +123,10 @@ class CompiledNetwork:
                     "gateway": item.gateway,
                 }
                 for item in self.host_addresses
+            ],
+            "dhcp_clients": [
+                {"device": item.device, "port": item.port}
+                for item in self.dhcp_clients
             ],
             "command_plans": [
                 {
@@ -154,10 +166,12 @@ def compile_network_dsl(
     device_types = {device.device_id: device.device_type for device in devices}
     links = tuple(_compile_links(document))
     host_addresses = tuple(_compile_host_addresses(document, device_types))
+    dhcp_clients = tuple(_compile_dhcp_clients(document, device_types))
     plans = tuple(
         [
             *_compile_switch_plans(document, device_types),
             *_compile_router_plans(document, device_types),
+            *_compile_dhcp_plans(document, device_types),
             *_compile_acl_plans(document, device_types),
             *_compile_static_plans(document, device_types),
             *_compile_rip_plans(document, device_types),
@@ -169,6 +183,7 @@ def compile_network_dsl(
         devices=devices,
         links=links,
         host_addresses=host_addresses,
+        dhcp_clients=dhcp_clients,
         command_plans=plans,
         verification=tuple(_compile_verification(document)),
     )
@@ -234,6 +249,52 @@ def _compile_host_addresses(
             )
         )
     return result
+
+
+def _compile_dhcp_clients(
+    document: Mapping[str, object],
+    device_types: Mapping[str, str],
+) -> list[DhcpClientConfig]:
+    result: list[DhcpClientConfig] = []
+    for item in _as_list(document.get("dhcp_clients")):
+        if not isinstance(item, dict):
+            continue
+        device = str(item["device"])
+        if device_types.get(device) not in ("pc", "server"):
+            raise DslCompileError(
+                f"DHCP client {device} must be a PC or server"
+            )
+        result.append(DhcpClientConfig(device, str(item["port"])))
+    return result
+
+
+def _compile_dhcp_plans(
+    document: Mapping[str, object],
+    device_types: Mapping[str, str],
+) -> list[CommandPlan]:
+    dhcp = document.get("dhcp")
+    if not isinstance(dhcp, dict):
+        return []
+    grouped: dict[str, list[DhcpPool]] = {}
+    for item in _as_list(dhcp.get("pools")):
+        if not isinstance(item, dict):
+            continue
+        device = str(item["device"])
+        if device_types.get(device) != "router":
+            raise DslCompileError(f"DHCP server {device} is not a router")
+        grouped.setdefault(device, []).append(
+            DhcpPool(
+                str(item["name"]),
+                str(item["network"]),
+                str(item["default_router"]),
+                tuple(str(value) for value in _as_list(item.get("dns_servers"))),
+                tuple(str(value) for value in _as_list(item.get("excluded"))),
+            )
+        )
+    return [
+        compile_dhcp_config(device, pools)
+        for device, pools in grouped.items()
+    ]
 
 
 def _compile_switch_plans(

@@ -14,7 +14,7 @@ EXAMPLES = PROJECT_ROOT / "examples"
 class ExampleDslTests(unittest.TestCase):
     def test_every_example_validates_and_compiles(self) -> None:
         files = sorted(EXAMPLES.glob("*.yaml"))
-        self.assertGreaterEqual(len(files), 7)
+        self.assertGreaterEqual(len(files), 8)
         validator = NetworkValidator()
         for path in files:
             with self.subTest(path=path.name):
@@ -40,6 +40,7 @@ class ExampleDslTests(unittest.TestCase):
                 "vlan",
                 "trunk",
                 "acl",
+                "dhcp",
                 "static-routing",
                 "rip",
                 "ospf",
