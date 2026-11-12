@@ -66,7 +66,29 @@ Run:
 ```powershell
 python -m pt_agent validate-dsl examples\campus-vlan.yaml
 python -m pt_agent validate-dsl examples\ospf-routing.yaml
+python -m pt_agent compile-dsl examples\campus-vlan.yaml
+python -m pt_agent deploy-dsl examples\campus-vlan.yaml
+python -m pt_agent deploy-dsl examples\ospf-routing.yaml
 ```
+
+## Deployment Flow
+
+`deploy-dsl` performs the complete local Packet Tracer flow:
+
+1. YAML and JSON Schema validation.
+2. Network-semantic and command-safety validation.
+3. Deterministic compilation into topology, host, command, and verification
+   plans.
+4. Project creation and topology deployment.
+5. Host IPv4 and IOS command-plan deployment.
+6. Protocol convergence.
+7. Positive and negative connectivity verification.
+8. PKT save and reopen.
+9. Host address, topology, and connectivity verification after reopen.
+10. JSON report and JSONL audit output under `artifacts/`.
+
+The campus example verifies VLAN/Trunk isolation. The OSPF example verifies
+cross-subnet routing through YAML-generated interface and OSPF commands.
 
 ## Dependency Setup
 

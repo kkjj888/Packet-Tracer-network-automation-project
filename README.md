@@ -26,10 +26,13 @@ Validate a network DSL document:
 ```powershell
 python -m pt_agent validate-dsl examples\campus-vlan.yaml
 python -m pt_agent validate-dsl examples\ospf-routing.yaml
+python -m pt_agent compile-dsl examples\campus-vlan.yaml
+python -m pt_agent deploy-dsl examples\campus-vlan.yaml
+python -m pt_agent deploy-dsl examples\ospf-routing.yaml
 ```
 
 See [`docs/DSL_VALIDATION.md`](docs/DSL_VALIDATION.md) for the DSL structure,
-validation layers, and safety behavior.
+validation layers, deployment flow, and safety behavior.
 
 The Script Engine route has been verified end to end against Packet Tracer
 9.0.1:
