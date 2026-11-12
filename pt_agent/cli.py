@@ -1041,6 +1041,7 @@ def _run_ios_cli(
             f"{label} could not enter privileged mode; prompt={prompt!r}"
         )
 
+    time.sleep(0.4)
     if not commands:
         return {"commands": [], "output": "", "prompts": []}
     output_start: int | None = None
