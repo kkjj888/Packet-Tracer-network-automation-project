@@ -3,10 +3,37 @@ from __future__ import annotations
 import unittest
 
 from pt_agent.compiler.base import CommandCompileError
-from pt_agent.compiler.nat import PatConfig, compile_pat_config
+from pt_agent.compiler.nat import (
+    PatConfig,
+    StaticNatConfig,
+    compile_pat_config,
+    compile_static_nat_config,
+)
 
 
 class NatCommandTests(unittest.TestCase):
+    def test_compiles_static_tcp_nat(self) -> None:
+        plan = compile_static_nat_config(
+            "HQ-R1",
+            [
+                StaticNatConfig(
+                    "tcp",
+                    "10.22.0.178",
+                    80,
+                    "192.0.2.145",
+                    80,
+                    ("GigabitEthernet0/0",),
+                    "Serial0/0/0",
+                )
+            ],
+        )
+        self.assertIn(
+            "ip nat inside source static tcp 10.22.0.178 80 "
+            "192.0.2.145 80",
+            plan.commands,
+        )
+        self.assertEqual(plan.safety_issues(), [])
+
     def test_compiles_pat_configuration(self) -> None:
         plan = compile_pat_config(
             "R1",

@@ -520,6 +520,41 @@ class _SemanticChecker:
                             f"{path}.{field}",
                             f"{device_id}:{port} has no IPv4 configuration",
                         )
+        for index, item in enumerate(_as_list(nat.get("static"))):
+            if not isinstance(item, dict):
+                continue
+            path = f"nat.static[{index}]"
+            device_id = str(item.get("device", ""))
+            if not self._router_device(device_id, f"{path}.device"):
+                continue
+            for field in ("inside_address", "outside_address"):
+                try:
+                    address = ipaddress.ip_address(str(item.get(field, "")))
+                except ValueError as exc:
+                    self.error("INVALID_STATIC_NAT", f"{path}.{field}", str(exc))
+                    continue
+                if address.version != 4:
+                    self.error(
+                        "INVALID_STATIC_NAT",
+                        f"{path}.{field}",
+                        "only IPv4 static NAT is supported",
+                    )
+            for field in ("inside_interfaces", "outside_interface"):
+                values = _as_list(item.get(field))
+                if field == "outside_interface":
+                    values = [item.get(field)]
+                for value in values:
+                    port = str(value or "")
+                    if not any(
+                        str(entry.get("device")) == device_id
+                        and str(entry.get("port")) == port
+                        for entry in self.ipv4
+                    ):
+                        self.error(
+                            "NAT_INTERFACE_NOT_CONFIGURED",
+                            f"{path}.{field}",
+                            f"{device_id}:{port} has no IPv4 configuration",
+                        )
 
     def _check_dhcp(self) -> None:
         dhcp = self.document.get("dhcp")
@@ -797,6 +832,17 @@ class _SemanticChecker:
                 continue
             if interface.ip in network:
                 return True
+        routing = self.document.get("routing")
+        if isinstance(routing, dict):
+            for item in _as_list(routing.get("tunnels")):
+                if not isinstance(item, dict) or str(item.get("device")) != device_id:
+                    continue
+                try:
+                    interface = ipaddress.ip_interface(str(item.get("address")))
+                except ValueError:
+                    continue
+                if interface.ip in network:
+                    return True
         return False
 
     def _check_acls(self) -> None:
@@ -813,11 +859,26 @@ class _SemanticChecker:
                     f"ACL {acl_id!r} is duplicated",
                 )
             seen.add(acl_id)
-            if acl_id.isdigit() and not 1 <= int(acl_id) <= 99:
+            kind = str(acl.get("kind", "standard"))
+            if (
+                kind == "standard"
+                and acl_id.isdigit()
+                and not (1 <= int(acl_id) <= 99 or 1300 <= int(acl_id) <= 1999)
+            ):
                 self.warning(
                     "STANDARD_ACL_RANGE",
                     f"{path}.id",
                     "standard ACL IDs are normally 1-99 or 1300-1999",
+                )
+            if (
+                kind == "extended"
+                and acl_id.isdigit()
+                and not (100 <= int(acl_id) <= 199 or 2000 <= int(acl_id) <= 2699)
+            ):
+                self.warning(
+                    "EXTENDED_ACL_RANGE",
+                    f"{path}.id",
+                    "extended ACL IDs are normally 100-199 or 2000-2699",
                 )
             for rule_index, rule in enumerate(_as_list(acl.get("rules"))):
                 if not isinstance(rule, dict):
@@ -908,11 +969,11 @@ class _SemanticChecker:
                     f"unknown device {device_id!r}",
                 )
                 continue
-            if device.get("type") != "multilayer_switch":
+            if device.get("type") not in ("switch", "multilayer_switch"):
                 self.error(
-                    "MULTILAYER_SWITCH_REQUIRED",
+                    "SWITCH_REQUIRED",
                     f"{path}.device",
-                    f"{device_id} is not a multilayer switch",
+                    f"{device_id} is not a switch",
                 )
             vlan = item.get("vlan")
             if not isinstance(vlan, int) or not self._vlan_is_defined(vlan):
@@ -1103,6 +1164,22 @@ class _SemanticChecker:
                         f"{path}.expected_hops[{hop_index}]",
                         str(exc),
                     )
+        for index, item in enumerate(
+            _as_list(verification.get("device_output_assertions"))
+        ):
+            if not isinstance(item, dict):
+                continue
+            path = f"verification.device_output_assertions[{index}]"
+            self._router_device(item.get("device"), f"{path}.device")
+            command_issues = CommandSafetyValidator().validate(
+                [str(item.get("command", ""))]
+            )
+            for issue in command_issues:
+                self.error(
+                    issue.code,
+                    f"{path}.command",
+                    issue.message,
+                )
 
 
 _DANGEROUS_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
@@ -1220,6 +1297,12 @@ _ALLOWED_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(
         r"^ip nat inside source list \d{1,2} "
         r"interface [A-Za-z0-9/._-]+ overload$",
+        re.I,
+    ),
+    re.compile(
+        r"^ip nat inside source static (?:tcp|udp) "
+        r"(?:\d{1,3}\.){3}\d{1,3} \d{1,5} "
+        r"(?:\d{1,3}\.){3}\d{1,3} \d{1,5}$",
         re.I,
     ),
     re.compile(r"^show [A-Za-z0-9/|._ -]+$", re.I),

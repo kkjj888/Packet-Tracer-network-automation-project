@@ -2508,6 +2508,46 @@ def _configure_wireless_dsl(
     return report
 
 
+def _run_dsl_output_assertions(
+    bridge: PTBridgeServer,
+    audit: JsonlAuditLogger,
+    network: CompiledNetwork,
+    *,
+    label: str,
+    timeout: float,
+) -> list[dict[str, object]]:
+    results: list[dict[str, object]] = []
+    for index, spec in enumerate(network.output_assertions, start=1):
+        invocation = _run_ios_cli(
+            bridge,
+            audit,
+            label=f"{label}_{index:02d}_{spec.name}",
+            device=spec.device,
+            commands=[spec.command],
+            timeout=timeout,
+            prepare_boot_dialog=True,
+        )
+        output = str(invocation.get("output", ""))
+        lowered = output.lower()
+        missing = [
+            expected
+            for expected in spec.expected_contains
+            if expected.lower() not in lowered
+        ]
+        results.append(
+            {
+                "name": spec.name,
+                "device": spec.device,
+                "command": spec.command,
+                "expected_contains": list(spec.expected_contains),
+                "missing": missing,
+                "passed": not missing,
+                "raw_output": output,
+            }
+        )
+    return results
+
+
 def command_deploy_dsl(args: argparse.Namespace) -> int:
     try:
         document = load_yaml_document(args.path)
@@ -2640,6 +2680,13 @@ def command_deploy_dsl(args: argparse.Namespace) -> int:
             traceroute_timeout=args.traceroute_timeout,
         )
         report["advanced_verification"] = advanced_verification
+        report["output_assertions"] = _run_dsl_output_assertions(
+            bridge,
+            audit,
+            network,
+            label="dsl_output_assertions",
+            timeout=args.cli_timeout,
+        )
         dhcp_leases: list[object] = []
         for item in network.dhcp_clients:
             dhcp_leases.append(
@@ -2777,6 +2824,13 @@ def command_deploy_dsl(args: argparse.Namespace) -> int:
             traceroute_timeout=args.traceroute_timeout,
         )
         report["advanced_verification_after_reopen"] = advanced_after
+        report["output_assertions_after_reopen"] = _run_dsl_output_assertions(
+            bridge,
+            audit,
+            network,
+            label="dsl_output_assertions_after_reopen",
+            timeout=args.cli_timeout,
+        )
         verification_after = _run_dsl_verification(
             bridge,
             audit,
@@ -2796,6 +2850,14 @@ def command_deploy_dsl(args: argparse.Namespace) -> int:
             all(item.get("passed") for item in verification)
             and all(item.get("passed") for item in verification_after)
             and advanced_passed
+            and all(
+                item.get("passed")
+                for group in (
+                    report.get("output_assertions", []),
+                    report.get("output_assertions_after_reopen", []),
+                )
+                for item in group
+            )
             and all(
                 item.get("passed")
                 for item in report.get("verification_after_failure", [])

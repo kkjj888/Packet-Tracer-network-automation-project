@@ -8,7 +8,9 @@ from typing import Mapping
 from .compiler.acl import (
     AclBinding,
     AclDefinition,
+    AclEndpoint,
     AclRule,
+    ExtendedAclRule,
     compile_acl_config,
 )
 from .compiler.base import CommandPlan
@@ -21,7 +23,12 @@ from .compiler.interface import (
     compile_ipv4_interfaces,
     compile_vlan_subinterfaces,
 )
-from .compiler.nat import PatConfig, compile_pat_config
+from .compiler.nat import (
+    PatConfig,
+    StaticNatConfig,
+    compile_pat_config,
+    compile_static_nat_config,
+)
 from .compiler.ospf import OspfNetwork, compile_ospf_config
 from .compiler.platform import (
     HsrpGroup,
@@ -152,6 +159,14 @@ class WirelessConfig:
 
 
 @dataclass(frozen=True)
+class OutputAssertionSpec:
+    name: str
+    device: str
+    command: str
+    expected_contains: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class CompiledNetwork:
     project: str
     devices: tuple[TopologyDevice, ...]
@@ -164,6 +179,7 @@ class CompiledNetwork:
     route_assertions: tuple[RouteAssertionSpec, ...]
     traceroutes: tuple[TracerouteSpec, ...]
     wireless: WirelessConfig | None
+    output_assertions: tuple[OutputAssertionSpec, ...]
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -257,6 +273,15 @@ class CompiledNetwork:
                 if self.wireless
                 else None
             ),
+            "output_assertions": [
+                {
+                    "name": item.name,
+                    "device": item.device,
+                    "command": item.command,
+                    "expected_contains": list(item.expected_contains),
+                }
+                for item in self.output_assertions
+            ],
         }
 
 
@@ -286,6 +311,7 @@ def compile_network_dsl(
             *_compile_router_plans(document, device_types),
             *_compile_dhcp_plans(document, device_types),
             *_compile_nat_plans(document, device_types),
+            *_compile_static_nat_plans(document, device_types),
             *_compile_acl_plans(document, device_types),
             *_compile_static_plans(document, device_types),
             *_compile_rip_plans(document, device_types),
@@ -307,6 +333,7 @@ def compile_network_dsl(
         route_assertions=tuple(_compile_route_assertions(document)),
         traceroutes=tuple(_compile_traceroutes(document)),
         wireless=_compile_wireless(document, device_types),
+        output_assertions=tuple(_compile_output_assertions(document)),
     )
 
 
@@ -489,6 +516,7 @@ def _compile_switch_plans(
                     if item.get("allowed_vlans")
                     else None
                 ),
+                True,
             )
             for item in local
             if item.get("mode") == "trunk"
@@ -543,8 +571,8 @@ def _compile_platform_plans(
         if not isinstance(item, dict):
             continue
         device = str(item["device"])
-        if device_types.get(device) != "multilayer_switch":
-            raise DslCompileError(f"SVI device {device} is not a multilayer switch")
+        if device_types.get(device) not in _L2_TYPES:
+            raise DslCompileError(f"SVI device {device} is not a switch")
         svis.setdefault(device, []).append(
             SviConfig(int(item["vlan"]), str(item["address"]))
         )
@@ -658,6 +686,41 @@ def _compile_nat_plans(
     ]
 
 
+def _compile_static_nat_plans(
+    document: Mapping[str, object],
+    device_types: Mapping[str, str],
+) -> list[CommandPlan]:
+    nat = document.get("nat")
+    if not isinstance(nat, dict):
+        return []
+    grouped: dict[str, list[StaticNatConfig]] = {}
+    for item in _as_list(nat.get("static")):
+        if not isinstance(item, dict):
+            continue
+        device = str(item["device"])
+        if device_types.get(device) not in _L3_TYPES:
+            raise DslCompileError(
+                f"static NAT device {device} is not a layer-3 device"
+            )
+        grouped.setdefault(device, []).append(
+            StaticNatConfig(
+                str(item["protocol"]),
+                str(item["inside_address"]),
+                int(item["inside_port"]),
+                str(item["outside_address"]),
+                int(item["outside_port"]),
+                tuple(
+                    str(value) for value in _as_list(item["inside_interfaces"])
+                ),
+                str(item["outside_interface"]),
+            )
+        )
+    return [
+        compile_static_nat_config(device, configs)
+        for device, configs in grouped.items()
+    ]
+
+
 def _compile_acl_plans(
     document: Mapping[str, object],
     device_types: Mapping[str, str],
@@ -672,18 +735,44 @@ def _compile_acl_plans(
         if not isinstance(acl_item, dict):
             continue
         acl_id = str(acl_item["id"])
+        kind = str(acl_item.get("kind", "standard"))
         acl = AclDefinition(
             acl_id,
             tuple(
-                AclRule(
-                    str(rule["action"]),
-                    str(rule["match"]),
-                    str(rule["address"]) if rule.get("address") else None,
-                    str(rule["wildcard"]) if rule.get("wildcard") else None,
+                (
+                    ExtendedAclRule(
+                        str(rule["action"]),
+                        str(rule["protocol"]),
+                        _compile_acl_endpoint(rule["source"]),
+                        _compile_acl_endpoint(rule["destination"]),
+                        rule.get("destination_port_eq"),
+                        (
+                            str(rule["icmp_type"])
+                            if rule.get("icmp_type")
+                            else None
+                        ),
+                        bool(rule.get("established", False)),
+                    )
+                    if kind == "extended"
+                    else AclRule(
+                        str(rule["action"]),
+                        str(rule["match"]),
+                        (
+                            str(rule["address"])
+                            if rule.get("address")
+                            else None
+                        ),
+                        (
+                            str(rule["wildcard"])
+                            if rule.get("wildcard")
+                            else None
+                        ),
+                    )
                 )
                 for rule in _as_list(acl_item.get("rules"))
                 if isinstance(rule, dict)
             ),
+            kind,
         )
         by_device: dict[str, list[AclBinding]] = {}
         for binding in bindings:
@@ -700,9 +789,38 @@ def _compile_acl_plans(
                     str(binding["direction"]),
                 )
             )
+        management = document.get("management")
+        management_access_acl = (
+            str(management.get("access_acl"))
+            if isinstance(management, dict)
+            and management.get("access_acl") is not None
+            else None
+        )
+        if management_access_acl == acl_id:
+            for device in _as_list(management.get("devices")):
+                device_id = str(device)
+                if device_id not in by_device:
+                    by_device[device_id] = []
         for device, device_bindings in by_device.items():
-            plans.append(compile_acl_config(device, acl, device_bindings))
+            plans.append(
+                compile_acl_config(
+                    device,
+                    acl,
+                    device_bindings,
+                    require_binding=bool(device_bindings),
+                )
+            )
     return plans
+
+
+def _compile_acl_endpoint(value: object) -> AclEndpoint:
+    if not isinstance(value, dict):
+        raise DslCompileError("extended ACL endpoint must be a mapping")
+    return AclEndpoint(
+        str(value["kind"]),
+        str(value["address"]) if value.get("address") else None,
+        str(value["wildcard"]) if value.get("wildcard") else None,
+    )
 
 
 def _compile_static_plans(
@@ -1033,7 +1151,28 @@ def _compile_traceroutes(
     ]
 
 
+def _compile_output_assertions(
+    document: Mapping[str, object],
+) -> list[OutputAssertionSpec]:
+    verification = document.get("verification")
+    if not isinstance(verification, dict):
+        return []
+    return [
+        OutputAssertionSpec(
+            str(item["name"]),
+            str(item["device"]),
+            str(item["command"]),
+            tuple(str(value) for value in _as_list(item["expected_contains"])),
+        )
+        for item in _as_list(verification.get("device_output_assertions"))
+        if isinstance(item, dict)
+    ]
+
+
 def topology_js(network: CompiledNetwork) -> str:
+    wireless_clients = (
+        set(network.wireless.clients) if network.wireless else set()
+    )
     device_specs = [
         {
             "id": device.device_id,
@@ -1042,7 +1181,7 @@ def topology_js(network: CompiledNetwork) -> str:
             "x": device.x,
             "y": device.y,
             "modules": list(device.modules),
-            "wireless": device.device_type == "laptop",
+            "wireless": device.device_id in wireless_clients,
         }
         for device in network.devices
     ]

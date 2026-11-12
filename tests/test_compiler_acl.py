@@ -5,13 +5,50 @@ import unittest
 from pt_agent.compiler.acl import (
     AclBinding,
     AclDefinition,
+    AclEndpoint,
     AclRule,
+    ExtendedAclRule,
     compile_acl_config,
 )
 from pt_agent.compiler.base import CommandCompileError
 
 
 class AclCommandTests(unittest.TestCase):
+    def test_compiles_extended_acl_with_ports_and_address_classes(self) -> None:
+        plan = compile_acl_config(
+            "CORE-A",
+            AclDefinition(
+                "105",
+                (
+                    ExtendedAclRule(
+                        "permit",
+                        "tcp",
+                        AclEndpoint("network", "10.22.0.160", "0.0.0.15"),
+                        AclEndpoint("host", "10.22.0.178"),
+                        443,
+                    ),
+                    ExtendedAclRule(
+                        "deny",
+                        "ip",
+                        AclEndpoint("network", "10.22.0.160", "0.0.0.15"),
+                        AclEndpoint("any"),
+                    ),
+                ),
+                kind="extended",
+            ),
+            [AclBinding("Vlan205", "in")],
+        )
+        self.assertIn(
+            "access-list 105 permit tcp 10.22.0.160 0.0.0.15 "
+            "host 10.22.0.178 eq 443",
+            plan.commands,
+        )
+        self.assertIn(
+            "access-list 105 deny ip 10.22.0.160 0.0.0.15 any",
+            plan.commands,
+        )
+        self.assertEqual(plan.safety_issues(), [])
+
     def test_compiles_host_and_any_rules(self) -> None:
         plan = compile_acl_config(
             "R1",

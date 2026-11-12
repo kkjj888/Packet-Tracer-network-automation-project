@@ -13,6 +13,7 @@ class TrunkPort:
     port: str
     native_vlan: int = 1
     allowed_vlans: tuple[int, ...] | None = None
+    allow_native_exclusion: bool = False
 
     def rendered(self) -> tuple[str, int, str]:
         port = require_port(self.port)
@@ -37,7 +38,7 @@ class TrunkPort:
                 )
             if len(set(vlan_ids)) != len(vlan_ids):
                 raise CommandCompileError("trunk allowed VLANs must be unique")
-            if self.native_vlan not in vlan_ids:
+            if self.native_vlan not in vlan_ids and not self.allow_native_exclusion:
                 raise CommandCompileError(
                     "trunk native VLAN must be present in allowed VLANs"
                 )

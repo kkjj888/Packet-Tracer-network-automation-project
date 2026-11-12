@@ -1,0 +1,1066 @@
+version: 1
+project: g02-medical-campus
+
+devices:
+  - id: G02-ISP-R1
+    type: router
+    model: "2911"
+    x: 1760
+    y: 120
+    modules:
+      - name: HWIC-2T
+        slot: "0/0"
+  - id: G02-HQ-R1
+    type: router
+    model: "2911"
+    x: 900
+    y: 120
+    modules:
+      - name: HWIC-2T
+        slot: "0/0"
+  - id: G02-ZX-R1
+    type: router
+    model: "2911"
+    x: 1500
+    y: 300
+    modules:
+      - name: HWIC-2T
+        slot: "0/0"
+  - id: G02-HQ-COREA
+    type: multilayer_switch
+    model: 3560-24PS
+    x: 620
+    y: 430
+  - id: G02-HQ-COREB
+    type: multilayer_switch
+    model: 3560-24PS
+    x: 980
+    y: 430
+  - id: G02-HQ-ASW-OPD
+    type: switch
+    model: 2960-24TT
+    x: 120
+    y: 680
+  - id: G02-HQ-ASW-WARD
+    type: switch
+    model: 2960-24TT
+    x: 400
+    y: 680
+  - id: G02-HQ-ASW-FIN
+    type: switch
+    model: 2960-24TT
+    x: 680
+    y: 680
+  - id: G02-HQ-ASW-GST
+    type: switch
+    model: 2960-24TT
+    x: 960
+    y: 680
+  - id: G02-HQ-ASW-SRV
+    type: switch
+    model: 2960-24TT
+    x: 1240
+    y: 680
+  - id: G02-ZX-ASW1
+    type: switch
+    model: 2960-24TT
+    x: 1660
+    y: 560
+  - id: G02-HQ-SRV-WEB
+    type: server
+    model: Server-PT
+    x: 1170
+    y: 980
+  - id: G02-HQ-SRV-DNS
+    type: server
+    model: Server-PT
+    x: 1320
+    y: 980
+  - id: G02-ISP-DNS
+    type: server
+    model: Server-PT
+    x: 1900
+    y: 300
+  - id: G02-HQ-AP1
+    type: access_point
+    model: AccessPoint-PT
+    x: 900
+    y: 940
+  - id: G02-HQ-PC-OPD1
+    type: pc
+    model: PC-PT
+    x: 40
+    y: 1040
+  - id: G02-HQ-PC-OPD2
+    type: pc
+    model: PC-PT
+    x: 180
+    y: 1040
+  - id: G02-HQ-PC-WARD1
+    type: pc
+    model: PC-PT
+    x: 330
+    y: 1040
+  - id: G02-HQ-PC-WARD2
+    type: pc
+    model: PC-PT
+    x: 470
+    y: 1040
+  - id: G02-HQ-PC-FIN1
+    type: pc
+    model: PC-PT
+    x: 620
+    y: 1040
+  - id: G02-HQ-PC-FIN2
+    type: pc
+    model: PC-PT
+    x: 760
+    y: 1040
+  - id: G02-ZX-PC-EXAM1
+    type: pc
+    model: PC-PT
+    x: 1480
+    y: 1040
+  - id: G02-ZX-PC-EXAM2
+    type: pc
+    model: PC-PT
+    x: 1620
+    y: 1040
+  - id: G02-ZX-IOT1
+    type: pc
+    model: PC-PT
+    x: 1760
+    y: 1040
+  - id: G02-ZX-IOT2
+    type: pc
+    model: PC-PT
+    x: 1900
+    y: 1040
+  - id: G02-HQ-GUEST-LT1
+    type: laptop
+    model: Laptop-PT
+    x: 1030
+    y: 900
+  - id: G02-ISP-TEST
+    type: laptop
+    model: Laptop-PT
+    x: 2060
+    y: 160
+  - id: G02-HQ-NMS
+    type: laptop
+    model: Laptop-PT
+    x: 1470
+    y: 980
+
+links:
+  - from: G02-HQ-COREA:FastEthernet0/1
+    to: G02-HQ-R1:GigabitEthernet0/0
+  - from: G02-HQ-COREB:FastEthernet0/1
+    to: G02-HQ-R1:GigabitEthernet0/1
+  - from: G02-HQ-COREA:GigabitEthernet0/1
+    to: G02-HQ-COREB:GigabitEthernet0/1
+  - from: G02-HQ-COREA:FastEthernet0/2
+    to: G02-HQ-ASW-OPD:FastEthernet0/3
+  - from: G02-HQ-COREB:FastEthernet0/2
+    to: G02-HQ-ASW-OPD:FastEthernet0/4
+  - from: G02-HQ-COREA:FastEthernet0/3
+    to: G02-HQ-ASW-WARD:FastEthernet0/3
+  - from: G02-HQ-COREB:FastEthernet0/3
+    to: G02-HQ-ASW-WARD:FastEthernet0/4
+  - from: G02-HQ-COREA:FastEthernet0/4
+    to: G02-HQ-ASW-FIN:FastEthernet0/3
+  - from: G02-HQ-COREB:FastEthernet0/4
+    to: G02-HQ-ASW-FIN:FastEthernet0/4
+  - from: G02-HQ-COREA:FastEthernet0/5
+    to: G02-HQ-ASW-GST:FastEthernet0/2
+  - from: G02-HQ-COREB:FastEthernet0/5
+    to: G02-HQ-ASW-GST:FastEthernet0/3
+  - from: G02-HQ-COREA:FastEthernet0/6
+    to: G02-HQ-ASW-SRV:FastEthernet0/4
+  - from: G02-HQ-COREB:FastEthernet0/6
+    to: G02-HQ-ASW-SRV:FastEthernet0/5
+  - from: G02-HQ-ASW-OPD:FastEthernet0/1
+    to: G02-HQ-PC-OPD1:FastEthernet0
+  - from: G02-HQ-ASW-OPD:FastEthernet0/2
+    to: G02-HQ-PC-OPD2:FastEthernet0
+  - from: G02-HQ-ASW-WARD:FastEthernet0/1
+    to: G02-HQ-PC-WARD1:FastEthernet0
+  - from: G02-HQ-ASW-WARD:FastEthernet0/2
+    to: G02-HQ-PC-WARD2:FastEthernet0
+  - from: G02-HQ-ASW-FIN:FastEthernet0/1
+    to: G02-HQ-PC-FIN1:FastEthernet0
+  - from: G02-HQ-ASW-FIN:FastEthernet0/2
+    to: G02-HQ-PC-FIN2:FastEthernet0
+  - from: G02-HQ-ASW-GST:FastEthernet0/1
+    to: G02-HQ-AP1:Port0
+  - from: G02-HQ-ASW-SRV:FastEthernet0/1
+    to: G02-HQ-SRV-WEB:FastEthernet0
+  - from: G02-HQ-ASW-SRV:FastEthernet0/2
+    to: G02-HQ-SRV-DNS:FastEthernet0
+  - from: G02-HQ-ASW-SRV:FastEthernet0/3
+    to: G02-HQ-NMS:FastEthernet0
+  - from: G02-HQ-R1:Serial0/0/0
+    to: G02-ISP-R1:Serial0/0/0
+    cable: serial
+  - from: G02-ISP-R1:Serial0/0/1
+    to: G02-ZX-R1:Serial0/0/0
+    cable: serial
+  - from: G02-ZX-R1:GigabitEthernet0/0
+    to: G02-ZX-ASW1:GigabitEthernet0/1
+  - from: G02-ZX-ASW1:FastEthernet0/2
+    to: G02-ZX-PC-EXAM1:FastEthernet0
+  - from: G02-ZX-ASW1:FastEthernet0/3
+    to: G02-ZX-PC-EXAM2:FastEthernet0
+  - from: G02-ZX-ASW1:FastEthernet0/4
+    to: G02-ZX-IOT1:FastEthernet0
+  - from: G02-ZX-ASW1:FastEthernet0/5
+    to: G02-ZX-IOT2:FastEthernet0
+  - from: G02-ISP-R1:GigabitEthernet0/0
+    to: G02-ISP-DNS:FastEthernet0
+  - from: G02-ISP-R1:GigabitEthernet0/1
+    to: G02-ISP-TEST:FastEthernet0
+
+vlans:
+  - id: 201
+    name: OUTPATIENT
+  - id: 202
+    name: WARD
+  - id: 203
+    name: BRANCH-EXAM
+  - id: 204
+    name: IOT
+  - id: 205
+    name: FINANCE
+  - id: 206
+    name: GUEST
+  - id: 207
+    name: SERVER
+  - id: 208
+    name: MGMT
+
+switch_routing: [G02-HQ-COREA, G02-HQ-COREB]
+
+vlan_assignments:
+  - device: G02-HQ-ASW-OPD
+    port: FastEthernet0/1
+    mode: access
+    vlan: 201
+  - device: G02-HQ-ASW-OPD
+    port: FastEthernet0/2
+    mode: access
+    vlan: 201
+  - device: G02-HQ-ASW-OPD
+    port: FastEthernet0/3
+    mode: trunk
+    allowed_vlans: [201, 208]
+  - device: G02-HQ-ASW-OPD
+    port: FastEthernet0/4
+    mode: trunk
+    allowed_vlans: [201, 208]
+  - device: G02-HQ-ASW-WARD
+    port: FastEthernet0/1
+    mode: access
+    vlan: 202
+  - device: G02-HQ-ASW-WARD
+    port: FastEthernet0/2
+    mode: access
+    vlan: 202
+  - device: G02-HQ-ASW-WARD
+    port: FastEthernet0/3
+    mode: trunk
+    allowed_vlans: [202, 208]
+  - device: G02-HQ-ASW-WARD
+    port: FastEthernet0/4
+    mode: trunk
+    allowed_vlans: [202, 208]
+  - device: G02-HQ-ASW-FIN
+    port: FastEthernet0/1
+    mode: access
+    vlan: 205
+  - device: G02-HQ-ASW-FIN
+    port: FastEthernet0/2
+    mode: access
+    vlan: 205
+  - device: G02-HQ-ASW-FIN
+    port: FastEthernet0/3
+    mode: trunk
+    allowed_vlans: [205, 208]
+  - device: G02-HQ-ASW-FIN
+    port: FastEthernet0/4
+    mode: trunk
+    allowed_vlans: [205, 208]
+  - device: G02-HQ-ASW-GST
+    port: FastEthernet0/1
+    mode: access
+    vlan: 206
+  - device: G02-HQ-ASW-GST
+    port: FastEthernet0/2
+    mode: trunk
+    allowed_vlans: [206, 208]
+  - device: G02-HQ-ASW-GST
+    port: FastEthernet0/3
+    mode: trunk
+    allowed_vlans: [206, 208]
+  - device: G02-HQ-ASW-SRV
+    port: FastEthernet0/1
+    mode: access
+    vlan: 207
+  - device: G02-HQ-ASW-SRV
+    port: FastEthernet0/2
+    mode: access
+    vlan: 207
+  - device: G02-HQ-ASW-SRV
+    port: FastEthernet0/3
+    mode: access
+    vlan: 208
+  - device: G02-HQ-ASW-SRV
+    port: FastEthernet0/4
+    mode: trunk
+    allowed_vlans: [207, 208]
+  - device: G02-HQ-ASW-SRV
+    port: FastEthernet0/5
+    mode: trunk
+    allowed_vlans: [207, 208]
+  - device: G02-ZX-ASW1
+    port: FastEthernet0/2
+    mode: access
+    vlan: 203
+  - device: G02-ZX-ASW1
+    port: FastEthernet0/3
+    mode: access
+    vlan: 203
+  - device: G02-ZX-ASW1
+    port: FastEthernet0/4
+    mode: access
+    vlan: 204
+  - device: G02-ZX-ASW1
+    port: FastEthernet0/5
+    mode: access
+    vlan: 204
+  - device: G02-ZX-ASW1
+    port: GigabitEthernet0/1
+    mode: trunk
+    allowed_vlans: [203, 204, 208]
+  - device: G02-HQ-COREA
+    port: FastEthernet0/2
+    mode: trunk
+    allowed_vlans: [201, 208]
+  - device: G02-HQ-COREA
+    port: FastEthernet0/3
+    mode: trunk
+    allowed_vlans: [202, 208]
+  - device: G02-HQ-COREA
+    port: FastEthernet0/4
+    mode: trunk
+    allowed_vlans: [205, 208]
+  - device: G02-HQ-COREA
+    port: FastEthernet0/5
+    mode: trunk
+    allowed_vlans: [206, 208]
+  - device: G02-HQ-COREA
+    port: FastEthernet0/6
+    mode: trunk
+    allowed_vlans: [207, 208]
+  - device: G02-HQ-COREA
+    port: GigabitEthernet0/1
+    mode: trunk
+    allowed_vlans: [201, 202, 205, 206, 207, 208]
+  - device: G02-HQ-COREB
+    port: FastEthernet0/2
+    mode: trunk
+    allowed_vlans: [201, 208]
+  - device: G02-HQ-COREB
+    port: FastEthernet0/3
+    mode: trunk
+    allowed_vlans: [202, 208]
+  - device: G02-HQ-COREB
+    port: FastEthernet0/4
+    mode: trunk
+    allowed_vlans: [205, 208]
+  - device: G02-HQ-COREB
+    port: FastEthernet0/5
+    mode: trunk
+    allowed_vlans: [206, 208]
+  - device: G02-HQ-COREB
+    port: FastEthernet0/6
+    mode: trunk
+    allowed_vlans: [207, 208]
+  - device: G02-HQ-COREB
+    port: GigabitEthernet0/1
+    mode: trunk
+    allowed_vlans: [201, 202, 205, 206, 207, 208]
+
+ipv4:
+  - device: G02-HQ-R1
+    port: GigabitEthernet0/0
+    address: 10.22.5.2/30
+  - device: G02-HQ-R1
+    port: GigabitEthernet0/1
+    address: 10.22.5.6/30
+  - device: G02-HQ-R1
+    port: Serial0/0/0
+    address: 192.0.2.9/30
+  - device: G02-HQ-R1
+    port: Loopback0
+    address: 10.22.0.199/32
+  - device: G02-ZX-R1
+    port: Serial0/0/0
+    address: 10.22.5.10/30
+  - device: G02-ZX-R1
+    port: GigabitEthernet0/0.203
+    parent_port: GigabitEthernet0/0
+    dot1q_vlan: 203
+    address: 10.22.4.30/27
+  - device: G02-ZX-R1
+    port: GigabitEthernet0/0.204
+    parent_port: GigabitEthernet0/0
+    dot1q_vlan: 204
+    address: 10.22.4.46/28
+  - device: G02-ZX-R1
+    port: GigabitEthernet0/0.208
+    parent_port: GigabitEthernet0/0
+    dot1q_vlan: 208
+    address: 10.22.4.62/28
+  - device: G02-ISP-R1
+    port: GigabitEthernet0/0
+    address: 198.18.1.54/30
+  - device: G02-ISP-R1
+    port: GigabitEthernet0/1
+    address: 198.18.2.254/24
+  - device: G02-ISP-R1
+    port: Serial0/0/0
+    address: 192.0.2.10/30
+  - device: G02-ISP-R1
+    port: Serial0/0/1
+    address: 10.22.5.9/30
+  - device: G02-ISP-R1
+    port: Loopback0
+    address: 198.18.1.1/32
+  - device: G02-HQ-COREA
+    port: FastEthernet0/1
+    address: 10.22.5.1/30
+    point_to_point: true
+  - device: G02-HQ-COREB
+    port: FastEthernet0/1
+    address: 10.22.5.5/30
+    point_to_point: true
+  - device: G02-HQ-SRV-WEB
+    port: FastEthernet0
+    address: 10.22.0.178/28
+    gateway: 10.22.0.190
+  - device: G02-HQ-SRV-DNS
+    port: FastEthernet0
+    address: 10.22.0.179/28
+    gateway: 10.22.0.190
+  - device: G02-ISP-DNS
+    port: FastEthernet0
+    address: 198.18.1.53/30
+    gateway: 198.18.1.54
+  - device: G02-HQ-PC-WARD1
+    port: FastEthernet0
+    address: 10.22.0.10/26
+    gateway: 10.22.0.62
+  - device: G02-HQ-PC-WARD2
+    port: FastEthernet0
+    address: 10.22.0.11/26
+    gateway: 10.22.0.62
+  - device: G02-HQ-PC-FIN1
+    port: FastEthernet0
+    address: 10.22.0.165/28
+    gateway: 10.22.0.174
+  - device: G02-HQ-PC-FIN2
+    port: FastEthernet0
+    address: 10.22.0.166/28
+    gateway: 10.22.0.174
+  - device: G02-ZX-IOT1
+    port: FastEthernet0
+    address: 10.22.4.40/28
+    gateway: 10.22.4.46
+  - device: G02-ZX-IOT2
+    port: FastEthernet0
+    address: 10.22.4.41/28
+    gateway: 10.22.4.46
+  - device: G02-HQ-NMS
+    port: FastEthernet0
+    address: 10.22.0.193/28
+    gateway: 10.22.0.206
+  - device: G02-ISP-TEST
+    port: FastEthernet0
+    address: 198.18.2.10/24
+    gateway: 198.18.2.254
+
+svis:
+  - device: G02-HQ-COREA
+    vlan: 201
+    address: 10.22.0.156/27
+  - device: G02-HQ-COREA
+    vlan: 202
+    address: 10.22.0.60/26
+  - device: G02-HQ-COREA
+    vlan: 205
+    address: 10.22.0.172/28
+  - device: G02-HQ-COREA
+    vlan: 206
+    address: 10.22.0.124/26
+  - device: G02-HQ-COREA
+    vlan: 207
+    address: 10.22.0.188/28
+  - device: G02-HQ-COREA
+    vlan: 208
+    address: 10.22.0.204/28
+  - device: G02-HQ-COREB
+    vlan: 201
+    address: 10.22.0.157/27
+  - device: G02-HQ-COREB
+    vlan: 202
+    address: 10.22.0.61/26
+  - device: G02-HQ-COREB
+    vlan: 205
+    address: 10.22.0.173/28
+  - device: G02-HQ-COREB
+    vlan: 206
+    address: 10.22.0.125/26
+  - device: G02-HQ-COREB
+    vlan: 207
+    address: 10.22.0.189/28
+  - device: G02-HQ-COREB
+    vlan: 208
+    address: 10.22.0.205/28
+  - device: G02-HQ-ASW-OPD
+    vlan: 208
+    address: 10.22.0.194/28
+  - device: G02-HQ-ASW-WARD
+    vlan: 208
+    address: 10.22.0.195/28
+  - device: G02-HQ-ASW-FIN
+    vlan: 208
+    address: 10.22.0.196/28
+  - device: G02-HQ-ASW-GST
+    vlan: 208
+    address: 10.22.0.197/28
+  - device: G02-HQ-ASW-SRV
+    vlan: 208
+    address: 10.22.0.198/28
+  - device: G02-ZX-ASW1
+    vlan: 208
+    address: 10.22.4.49/28
+
+hsrp:
+  - device: G02-HQ-COREA
+    vlan: 201
+    group: 201
+    virtual_ip: 10.22.0.158
+    priority: 110
+    track_port: FastEthernet0/1
+    track_decrement: 20
+  - device: G02-HQ-COREB
+    vlan: 201
+    group: 201
+    virtual_ip: 10.22.0.158
+    priority: 100
+  - device: G02-HQ-COREA
+    vlan: 202
+    group: 202
+    virtual_ip: 10.22.0.62
+    priority: 110
+    track_port: FastEthernet0/1
+    track_decrement: 20
+  - device: G02-HQ-COREB
+    vlan: 202
+    group: 202
+    virtual_ip: 10.22.0.62
+    priority: 100
+  - device: G02-HQ-COREA
+    vlan: 205
+    group: 205
+    virtual_ip: 10.22.0.174
+    priority: 110
+    track_port: FastEthernet0/1
+    track_decrement: 20
+  - device: G02-HQ-COREB
+    vlan: 205
+    group: 205
+    virtual_ip: 10.22.0.174
+    priority: 100
+  - device: G02-HQ-COREA
+    vlan: 206
+    group: 206
+    virtual_ip: 10.22.0.126
+    priority: 110
+    track_port: FastEthernet0/1
+    track_decrement: 20
+  - device: G02-HQ-COREB
+    vlan: 206
+    group: 206
+    virtual_ip: 10.22.0.126
+    priority: 100
+  - device: G02-HQ-COREA
+    vlan: 207
+    group: 207
+    virtual_ip: 10.22.0.190
+    priority: 110
+    track_port: FastEthernet0/1
+    track_decrement: 20
+  - device: G02-HQ-COREB
+    vlan: 207
+    group: 207
+    virtual_ip: 10.22.0.190
+    priority: 100
+  - device: G02-HQ-COREA
+    vlan: 208
+    group: 208
+    virtual_ip: 10.22.0.206
+    priority: 110
+    track_port: FastEthernet0/1
+    track_decrement: 20
+  - device: G02-HQ-COREB
+    vlan: 208
+    group: 208
+    virtual_ip: 10.22.0.206
+    priority: 100
+
+stp:
+  - device: G02-HQ-COREA
+    role: primary
+    vlans: [201, 202, 205, 206, 207, 208]
+  - device: G02-HQ-COREB
+    role: secondary
+    vlans: [201, 202, 205, 206, 207, 208]
+
+dhcp:
+  pools:
+    - name: OUTPATIENT
+      device: G02-HQ-COREA
+      network: 10.22.0.128/27
+      default_router: 10.22.0.158
+      dns_servers: [10.22.0.179]
+      excluded: [10.22.0.156, 10.22.0.157, 10.22.0.158]
+    - name: GUEST
+      device: G02-HQ-COREA
+      network: 10.22.0.64/26
+      default_router: 10.22.0.126
+      dns_servers: [10.22.0.179]
+      excluded: [10.22.0.124, 10.22.0.125, 10.22.0.126]
+    - name: BRANCH-EXAM
+      device: G02-ZX-R1
+      network: 10.22.4.0/27
+      default_router: 10.22.4.30
+      dns_servers: [10.22.0.179]
+      excluded: [10.22.4.30]
+
+dhcp_clients:
+  - device: G02-HQ-PC-OPD1
+    port: FastEthernet0
+  - device: G02-HQ-PC-OPD2
+    port: FastEthernet0
+  - device: G02-HQ-GUEST-LT1
+    port: Wireless0
+  - device: G02-ZX-PC-EXAM1
+    port: FastEthernet0
+  - device: G02-ZX-PC-EXAM2
+    port: FastEthernet0
+
+wireless:
+  ssid: AK-GUEST-G02
+  access_point: G02-HQ-AP1
+  encryption: open
+  clients: [G02-HQ-GUEST-LT1]
+
+routing:
+  static:
+    - device: G02-HQ-R1
+      network: 0.0.0.0/0
+      next_hop: 192.0.2.10
+      interface: Serial0/0/0
+    - device: G02-HQ-R1
+      network: 10.22.5.8/30
+      next_hop: 192.0.2.10
+      interface: Serial0/0/0
+    - device: G02-HQ-R1
+      network: 192.0.2.144/29
+      next_hop: 192.0.2.10
+      interface: Serial0/0/0
+    - device: G02-ZX-R1
+      network: 192.0.2.8/30
+      next_hop: 10.22.5.9
+      interface: Serial0/0/0
+    - device: G02-ISP-R1
+      network: 192.0.2.144/29
+      next_hop: 192.0.2.9
+      interface: Serial0/0/0
+  tunnels:
+    - device: G02-HQ-R1
+      interface: Tunnel0
+      address: 10.22.5.13/30
+      source: Serial0/0/0
+      destination: 10.22.5.10
+      mtu: 1476
+    - device: G02-ZX-R1
+      interface: Tunnel0
+      address: 10.22.5.14/30
+      source: Serial0/0/0
+      destination: 192.0.2.9
+      mtu: 1476
+  ospf:
+    process_id: 1
+    devices:
+      - G02-HQ-COREA
+      - G02-HQ-COREB
+      - G02-HQ-R1
+      - G02-ZX-R1
+    settings:
+      - device: G02-HQ-COREA
+        router_id: 10.22.0.204
+        passive_interfaces:
+          - Vlan201
+          - Vlan202
+          - Vlan205
+          - Vlan206
+          - Vlan207
+          - Vlan208
+        point_to_point_interfaces: [FastEthernet0/1]
+      - device: G02-HQ-COREB
+        router_id: 10.22.0.205
+        passive_interfaces:
+          - Vlan201
+          - Vlan202
+          - Vlan205
+          - Vlan206
+          - Vlan207
+          - Vlan208
+        point_to_point_interfaces: [FastEthernet0/1]
+      - device: G02-HQ-R1
+        router_id: 10.22.5.2
+        passive_interfaces: [Loopback0]
+        point_to_point_interfaces:
+          - GigabitEthernet0/0
+          - GigabitEthernet0/1
+          - Tunnel0
+        default_information_originate: true
+      - device: G02-ZX-R1
+        router_id: 10.22.5.10
+        passive_interfaces:
+          - GigabitEthernet0/0.203
+          - GigabitEthernet0/0.204
+          - GigabitEthernet0/0.208
+        point_to_point_interfaces: [Tunnel0]
+    networks:
+      - device: G02-HQ-COREA
+        network: 10.22.5.0/30
+        area: 0
+      - device: G02-HQ-COREA
+        network: 10.22.0.0/24
+        area: 0
+      - device: G02-HQ-COREB
+        network: 10.22.5.4/30
+        area: 0
+      - device: G02-HQ-COREB
+        network: 10.22.0.0/24
+        area: 0
+      - device: G02-HQ-R1
+        network: 10.22.5.0/30
+        area: 0
+      - device: G02-HQ-R1
+        network: 10.22.5.4/30
+        area: 0
+      - device: G02-HQ-R1
+        network: 10.22.5.12/30
+        area: 0
+      - device: G02-HQ-R1
+        network: 10.22.0.199/32
+        area: 0
+      - device: G02-ZX-R1
+        network: 10.22.4.0/27
+        area: 1
+      - device: G02-ZX-R1
+        network: 10.22.4.32/28
+        area: 1
+      - device: G02-ZX-R1
+        network: 10.22.4.48/28
+        area: 1
+      - device: G02-ZX-R1
+        network: 10.22.5.12/30
+        area: 0
+    area_ranges:
+      - device: G02-ZX-R1
+        area: 1
+        network: 10.22.4.0/25
+  bgp:
+    devices:
+      - device: G02-HQ-R1
+        local_as: 65302
+        router_id: 10.22.0.199
+        neighbors:
+          - address: 192.0.2.10
+            remote_as: 65500
+        networks: [192.0.2.144/29]
+      - device: G02-ISP-R1
+        local_as: 65500
+        router_id: 198.18.1.1
+        neighbors:
+          - address: 192.0.2.9
+            remote_as: 65302
+        networks:
+          - 198.18.1.1/32
+          - 198.18.1.52/30
+
+nat:
+  pat:
+    - device: G02-HQ-R1
+      acl_id: "1"
+      source_network: 10.22.0.0/16
+      inside_interfaces:
+        - GigabitEthernet0/0
+        - GigabitEthernet0/1
+      outside_interface: Serial0/0/0
+  static:
+    - device: G02-HQ-R1
+      protocol: tcp
+      inside_address: 10.22.0.178
+      inside_port: 80
+      outside_address: 192.0.2.145
+      outside_port: 80
+      inside_interfaces:
+        - GigabitEthernet0/0
+        - GigabitEthernet0/1
+      outside_interface: Serial0/0/0
+
+acls:
+  - id: "99"
+    kind: standard
+    rules:
+      - action: permit
+        match: host
+        address: 10.22.0.193
+      - action: deny
+        match: any
+  - id: "104"
+    kind: extended
+    rules:
+      - action: permit
+        protocol: udp
+        source: {kind: network, address: 10.22.4.32, wildcard: 0.0.0.15}
+        destination: {kind: host, address: 10.22.0.179}
+        destination_port_eq: domain
+      - action: permit
+        protocol: tcp
+        source: {kind: network, address: 10.22.4.32, wildcard: 0.0.0.15}
+        destination: {kind: host, address: 10.22.0.178}
+        destination_port_eq: www
+      - action: permit
+        protocol: tcp
+        source: {kind: network, address: 10.22.4.32, wildcard: 0.0.0.15}
+        destination: {kind: host, address: 10.22.0.178}
+        destination_port_eq: https
+      - action: permit
+        protocol: icmp
+        source: {kind: network, address: 10.22.4.32, wildcard: 0.0.0.15}
+        destination: {kind: host, address: 10.22.4.46}
+        icmp_type: echo
+      - action: permit
+        protocol: icmp
+        source: {kind: network, address: 10.22.4.32, wildcard: 0.0.0.15}
+        destination: {kind: host, address: 10.22.0.179}
+        icmp_type: echo
+      - action: permit
+        protocol: icmp
+        source: {kind: network, address: 10.22.4.32, wildcard: 0.0.0.15}
+        destination: {kind: host, address: 10.22.0.178}
+        icmp_type: echo
+      - action: permit
+        protocol: ip
+        source: {kind: network, address: 10.22.4.32, wildcard: 0.0.0.15}
+        destination: {kind: network, address: 10.22.0.128, wildcard: 0.0.0.31}
+      - action: deny
+        protocol: ip
+        source: {kind: any}
+        destination: {kind: any}
+  - id: "105"
+    kind: extended
+    rules:
+      - action: permit
+        protocol: tcp
+        source: {kind: network, address: 10.22.0.160, wildcard: 0.0.0.15}
+        destination: {kind: host, address: 10.22.0.178}
+        destination_port_eq: https
+      - action: permit
+        protocol: udp
+        source: {kind: network, address: 10.22.0.160, wildcard: 0.0.0.15}
+        destination: {kind: host, address: 10.22.0.179}
+        destination_port_eq: domain
+      - action: deny
+        protocol: ip
+        source: {kind: network, address: 10.22.0.160, wildcard: 0.0.0.15}
+        destination: {kind: network, address: 10.22.0.0, wildcard: 0.0.0.63}
+      - action: deny
+        protocol: ip
+        source: {kind: network, address: 10.22.0.160, wildcard: 0.0.0.15}
+        destination: {kind: network, address: 10.22.0.128, wildcard: 0.0.0.31}
+      - action: deny
+        protocol: ip
+        source: {kind: network, address: 10.22.0.160, wildcard: 0.0.0.15}
+        destination: {kind: network, address: 10.22.4.32, wildcard: 0.0.0.15}
+      - action: permit
+        protocol: ip
+        source: {kind: network, address: 10.22.0.160, wildcard: 0.0.0.15}
+        destination: {kind: any}
+      - action: deny
+        protocol: ip
+        source: {kind: any}
+        destination: {kind: any}
+  - id: "120"
+    kind: extended
+    rules:
+      - action: permit
+        protocol: udp
+        source: {kind: any}
+        destination: {kind: any}
+        destination_port_eq: bootps
+      - action: permit
+        protocol: udp
+        source: {kind: any}
+        destination: {kind: any}
+        destination_port_eq: bootpc
+      - action: permit
+        protocol: udp
+        source: {kind: network, address: 10.22.0.64, wildcard: 0.0.0.63}
+        destination: {kind: host, address: 10.22.0.179}
+        destination_port_eq: domain
+      - action: deny
+        protocol: ip
+        source: {kind: network, address: 10.22.0.64, wildcard: 0.0.0.63}
+        destination: {kind: network, address: 10.22.0.0, wildcard: 0.0.255.255}
+      - action: permit
+        protocol: ip
+        source: {kind: network, address: 10.22.0.64, wildcard: 0.0.0.63}
+        destination: {kind: any}
+      - action: deny
+        protocol: ip
+        source: {kind: any}
+        destination: {kind: any}
+
+acl_bindings:
+  - device: G02-HQ-COREA
+    port: Vlan205
+    acl: "105"
+    direction: in
+  - device: G02-HQ-COREB
+    port: Vlan205
+    acl: "105"
+    direction: in
+  - device: G02-HQ-COREA
+    port: Vlan206
+    acl: "120"
+    direction: in
+  - device: G02-HQ-COREB
+    port: Vlan206
+    acl: "120"
+    direction: in
+  - device: G02-ZX-R1
+    port: GigabitEthernet0/0.204
+    acl: "104"
+    direction: in
+
+management:
+  devices:
+    - G02-HQ-COREA
+    - G02-HQ-COREB
+    - G02-HQ-R1
+    - G02-ZX-R1
+  domain_name: akg.local
+  username: admin
+  password: G02-Lab-Admin!
+  access_acl: "99"
+
+verification:
+  connectivity:
+    - name: ward-to-web
+      source: G02-HQ-PC-WARD1
+      destination: G02-HQ-SRV-WEB
+      expected: pass
+    - name: finance-to-web
+      source: G02-HQ-PC-FIN1
+      destination: G02-HQ-SRV-WEB
+      expected: pass
+    - name: finance-to-ward-denied
+      source: G02-HQ-PC-FIN1
+      destination: G02-HQ-PC-WARD1
+      expected: fail
+    - name: iot-to-dns
+      source: G02-ZX-IOT1
+      destination: G02-HQ-SRV-DNS
+      expected: pass
+    - name: iot-to-finance-denied
+      source: G02-ZX-IOT1
+      destination: G02-HQ-PC-FIN1
+      expected: fail
+    - name: branch-exam-to-hq
+      source: G02-ZX-PC-EXAM1
+      destination: G02-HQ-PC-WARD2
+      expected: pass
+    - name: guest-to-internet
+      source: G02-HQ-GUEST-LT1
+      destination: G02-ISP-TEST
+      expected: pass
+    - name: guest-to-finance-denied
+      source: G02-HQ-GUEST-LT1
+      destination: G02-HQ-PC-FIN2
+      expected: fail
+    - name: nms-to-web
+      source: G02-HQ-NMS
+      destination: G02-HQ-SRV-WEB
+      expected: pass
+  route_assertions:
+    - device: G02-HQ-R1
+      destination: 198.18.1.1/32
+      protocol: static
+      next_hop: 192.0.2.10
+    - device: G02-ISP-R1
+      destination: 192.0.2.144/29
+      protocol: static
+      next_hop: 192.0.2.9
+    - device: G02-HQ-COREB
+      destination: 10.22.4.0/25
+      protocol: ospf
+      admin_distance: 110
+    - device: G02-ZX-R1
+      destination: 10.22.0.0/24
+      protocol: ospf
+      admin_distance: 110
+  traceroute_tests:
+    - name: ward-server-path
+      source: G02-HQ-PC-WARD1
+      destination: G02-HQ-SRV-WEB
+      expected_hops:
+        - 10.22.0.62
+        - 10.22.0.190
+        - 10.22.0.178
+  device_output_assertions:
+    - name: hsrp-core-a-active
+      device: G02-HQ-COREA
+      command: show standby brief
+      expected_contains: [Active]
+    - name: stp-core-a-root
+      device: G02-HQ-COREA
+      command: show spanning-tree vlan 201
+      expected_contains: [This bridge is the root]
+    - name: ospf-neighbor-full
+      device: G02-HQ-R1
+      command: show ip ospf neighbor
+      expected_contains: [FULL]
+    - name: gre-tunnel-up
+      device: G02-HQ-R1
+      command: show ip interface brief
+      expected_contains: [Tunnel0, up]
+    - name: bgp-hq-established
+      device: G02-HQ-R1
+      command: show ip bgp summary
+      expected_contains: [Established]
+    - name: bgp-isp-established
+      device: G02-ISP-R1
+      command: show ip bgp summary
+      expected_contains: [Established]
+    - name: static-nat-published
+      device: G02-HQ-R1
+      command: show running-config | include ip nat inside source static
+      expected_contains: [192.0.2.145, 10.22.0.178]

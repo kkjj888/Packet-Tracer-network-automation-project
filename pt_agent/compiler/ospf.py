@@ -55,7 +55,16 @@ def compile_ospf_config(
 ) -> CommandPlan:
     if not isinstance(process_id, int) or not 1 <= process_id <= 65535:
         raise CommandCompileError("OSPF process ID must be 1-65535")
-    body = [f"router ospf {process_id}"]
+    body: list[str] = []
+    for interface in point_to_point_interfaces:
+        body.extend(
+            [
+                f"interface {interface}",
+                "ip ospf network point-to-point",
+                "exit",
+            ]
+        )
+    body.append(f"router ospf {process_id}")
     if router_id:
         try:
             parsed_router_id = ipaddress.ip_address(router_id)
@@ -65,14 +74,6 @@ def compile_ospf_config(
             raise CommandCompileError("OSPF router ID must be IPv4")
         body.append(f"router-id {parsed_router_id}")
     body.append("log-adjacency-changes")
-    for interface in point_to_point_interfaces:
-        body.extend(
-            [
-                f"interface {interface}",
-                "ip ospf network point-to-point",
-                "exit",
-            ]
-        )
     seen_ranges: set[tuple[int, str]] = set()
     for area, prefix in area_ranges:
         try:
