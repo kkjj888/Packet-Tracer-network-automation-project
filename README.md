@@ -19,6 +19,9 @@ network-semantic checks, command-safety checks, and verified Packet Tracer
 configuration/acceptance loops. Agent and frontend integration remain later
 milestones.
 
+See [`PROJECT_STATUS.md`](PROJECT_STATUS.md) for the current architecture,
+completed capabilities, test matrix, remaining work, and next milestones.
+
 ## Current Result
 
 Validate a network DSL document:
