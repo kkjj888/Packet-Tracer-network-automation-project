@@ -70,3 +70,15 @@ verification:
       source: pc1
       destination: pc2
       expected: pass
+  route_assertions:
+    - device: r1
+      destination: 192.168.20.0/24
+      protocol: connected
+      interface: GigabitEthernet0/0.20
+  traceroute_tests:
+    - name: inter-vlan-path
+      source: pc1
+      destination: pc2
+      expected_hops:
+        - 192.168.10.1
+        - 192.168.20.20

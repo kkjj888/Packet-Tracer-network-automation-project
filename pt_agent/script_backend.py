@@ -669,6 +669,23 @@ def start_ping_js(device: str, destination: str) -> str:
 }})()"""
 
 
+def start_traceroute_js(device: str, destination: str) -> str:
+    device_text = json.dumps(device, ensure_ascii=False)
+    destination_text = json.dumps(destination, ensure_ascii=False)
+    return f"""(function(){{
+  try{{
+    var d=ipc.network().getDevice({device_text});
+    if(!d)return "ERROR:device_not_found";
+    var cl=d.getCommandLine();
+    var before=cl.getOutput().length;
+    cl.enterCommand("tracert "+{destination_text});
+    return JSON.stringify({{outputStart:Number(before)}});
+  }}catch(e){{
+    return "ERROR:"+String(e&&e.message?e.message:e);
+  }}
+}})()"""
+
+
 def read_command_output_js(device: str, offset: int) -> str:
     template = """(function(){
   try{

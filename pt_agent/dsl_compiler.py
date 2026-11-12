@@ -95,6 +95,24 @@ class VerificationSpec:
 
 
 @dataclass(frozen=True)
+class RouteAssertionSpec:
+    device: str
+    destination: str
+    protocol: str
+    next_hop: str | None
+    interface: str | None
+    admin_distance: int | None
+
+
+@dataclass(frozen=True)
+class TracerouteSpec:
+    name: str
+    source: str
+    destination: str
+    expected_hops: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class CompiledNetwork:
     project: str
     devices: tuple[TopologyDevice, ...]
@@ -104,6 +122,8 @@ class CompiledNetwork:
     link_failures: tuple[LinkFailure, ...]
     command_plans: tuple[CommandPlan, ...]
     verification: tuple[VerificationSpec, ...]
+    route_assertions: tuple[RouteAssertionSpec, ...]
+    traceroutes: tuple[TracerouteSpec, ...]
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -163,6 +183,26 @@ class CompiledNetwork:
                 }
                 for test in self.verification
             ],
+            "route_assertions": [
+                {
+                    "device": item.device,
+                    "destination": item.destination,
+                    "protocol": item.protocol,
+                    "next_hop": item.next_hop,
+                    "interface": item.interface,
+                    "admin_distance": item.admin_distance,
+                }
+                for item in self.route_assertions
+            ],
+            "traceroutes": [
+                {
+                    "name": item.name,
+                    "source": item.source,
+                    "destination": item.destination,
+                    "expected_hops": list(item.expected_hops),
+                }
+                for item in self.traceroutes
+            ],
         }
 
 
@@ -206,6 +246,8 @@ def compile_network_dsl(
         link_failures=link_failures,
         command_plans=plans,
         verification=tuple(_compile_verification(document)),
+        route_assertions=tuple(_compile_route_assertions(document)),
+        traceroutes=tuple(_compile_traceroutes(document)),
     )
 
 
@@ -600,6 +642,44 @@ def _compile_verification(
             str(item.get("protocol", "ping")),
         )
         for item in _as_list(verification.get("connectivity"))
+        if isinstance(item, dict)
+    ]
+
+
+def _compile_route_assertions(
+    document: Mapping[str, object],
+) -> list[RouteAssertionSpec]:
+    verification = document.get("verification")
+    if not isinstance(verification, dict):
+        return []
+    return [
+        RouteAssertionSpec(
+            str(item["device"]),
+            str(item["destination"]),
+            str(item["protocol"]),
+            str(item["next_hop"]) if item.get("next_hop") else None,
+            str(item["interface"]) if item.get("interface") else None,
+            int(item["admin_distance"]) if item.get("admin_distance") is not None else None,
+        )
+        for item in _as_list(verification.get("route_assertions"))
+        if isinstance(item, dict)
+    ]
+
+
+def _compile_traceroutes(
+    document: Mapping[str, object],
+) -> list[TracerouteSpec]:
+    verification = document.get("verification")
+    if not isinstance(verification, dict):
+        return []
+    return [
+        TracerouteSpec(
+            str(item["name"]),
+            str(item["source"]),
+            str(item["destination"]),
+            tuple(str(hop) for hop in _as_list(item.get("expected_hops"))),
+        )
+        for item in _as_list(verification.get("traceroute_tests"))
         if isinstance(item, dict)
     ]
 

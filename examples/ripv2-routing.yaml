@@ -58,3 +58,14 @@ verification:
       source: pc1
       destination: pc2
       expected: pass
+  route_assertions:
+    - device: r1
+      destination: 172.16.20.0/24
+      protocol: rip
+      next_hop: 10.0.0.2
+      admin_distance: 120
+    - device: r2
+      destination: 172.16.10.0/24
+      protocol: rip
+      next_hop: 10.0.0.1
+      admin_distance: 120

@@ -62,3 +62,22 @@ verification:
       source: pc1
       destination: pc2
       expected: pass
+  route_assertions:
+    - device: r1
+      destination: 0.0.0.0/0
+      protocol: static
+      next_hop: 10.0.0.2
+      admin_distance: 1
+    - device: r2
+      destination: 172.16.10.0/24
+      protocol: static
+      next_hop: 10.0.0.1
+      admin_distance: 1
+  traceroute_tests:
+    - name: static-path
+      source: pc1
+      destination: pc2
+      expected_hops:
+        - 172.16.10.1
+        - 10.0.0.2
+        - 172.16.20.20

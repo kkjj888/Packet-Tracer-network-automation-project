@@ -7,9 +7,13 @@ from pt_agent.dsl_compiler import compile_network_dsl
 from pt_agent.dsl_deployment import (
     DslDeploymentError,
     destination_ip,
+    evaluate_route_assertion,
+    evaluate_traceroute,
     evaluate_verification,
     host_ip_by_device,
+    parse_traceroute_hops,
 )
+from pt_agent.dsl_compiler import RouteAssertionSpec, TracerouteSpec
 from pt_agent.validation import load_yaml_document
 
 
@@ -63,6 +67,57 @@ class DslDeploymentTests(unittest.TestCase):
     def test_rejects_unknown_destination(self) -> None:
         with self.assertRaisesRegex(DslDeploymentError, "no IPv4 address"):
             destination_ip(self.network, "unknown")
+
+    def test_route_assertion_matches_protocol_and_next_hop(self) -> None:
+        result = evaluate_route_assertion(
+            RouteAssertionSpec(
+                "r1",
+                "172.16.20.0/24",
+                "ospf",
+                "10.0.0.2",
+                None,
+                110,
+            ),
+            {
+                "networks": [
+                    {
+                        "network": "172.16.20.0",
+                        "mask": "255.255.255.0",
+                        "entries": [
+                            {
+                                "protocol": "79",
+                                "nextHop": "10.0.0.2",
+                                "port": "GigabitEthernet0/1",
+                                "adminDistance": 110,
+                            }
+                        ],
+                    }
+                ]
+            },
+        )
+        self.assertTrue(result.passed)
+
+    def test_traceroute_parser_and_exact_path_assertion(self) -> None:
+        output = (
+            "Tracing route to 192.168.20.20\n"
+            "  1    <1 ms    <1 ms    <1 ms  192.168.10.1\n"
+            "  2    <1 ms    <1 ms    <1 ms  192.168.20.20\n"
+            "Trace complete.\n"
+        )
+        self.assertEqual(
+            parse_traceroute_hops(output),
+            ("192.168.10.1", "192.168.20.20"),
+        )
+        result = evaluate_traceroute(
+            TracerouteSpec(
+                "inter-vlan-path",
+                "pc1",
+                "pc2",
+                ("192.168.10.1", "192.168.20.20"),
+            ),
+            output,
+        )
+        self.assertTrue(result.passed)
 
 
 if __name__ == "__main__":

@@ -833,6 +833,52 @@ class _SemanticChecker:
                     path,
                     "source and destination must be different devices",
                 )
+        for index, item in enumerate(
+            _as_list(verification.get("route_assertions"))
+        ):
+            if not isinstance(item, dict):
+                continue
+            path = f"verification.route_assertions[{index}]"
+            self._router_device(item.get("device"), f"{path}.device")
+            try:
+                ipaddress.ip_network(str(item.get("destination", "")), strict=True)
+            except ValueError as exc:
+                self.error(
+                    "INVALID_ROUTE_DESTINATION",
+                    f"{path}.destination",
+                    str(exc),
+                )
+            if item.get("next_hop") is not None:
+                try:
+                    ipaddress.ip_address(str(item["next_hop"]))
+                except ValueError as exc:
+                    self.error(
+                        "INVALID_ROUTE_NEXT_HOP",
+                        f"{path}.next_hop",
+                        str(exc),
+                    )
+        for index, item in enumerate(
+            _as_list(verification.get("traceroute_tests"))
+        ):
+            if not isinstance(item, dict):
+                continue
+            path = f"verification.traceroute_tests[{index}]"
+            for field in ("source", "destination"):
+                if str(item.get(field, "")) not in self.devices:
+                    self.error(
+                        "UNKNOWN_DEVICE",
+                        f"{path}.{field}",
+                        f"unknown device {item.get(field)!r}",
+                    )
+            for hop_index, hop in enumerate(_as_list(item.get("expected_hops"))):
+                try:
+                    ipaddress.ip_address(str(hop))
+                except ValueError as exc:
+                    self.error(
+                        "INVALID_TRACEROUTE_HOP",
+                        f"{path}.expected_hops[{hop_index}]",
+                        str(exc),
+                    )
 
 
 _DANGEROUS_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (

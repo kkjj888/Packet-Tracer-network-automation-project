@@ -23,6 +23,8 @@ from .dsl_compiler import (
 from .dsl_deployment import (
     DslDeploymentError,
     destination_ip,
+    evaluate_route_assertion,
+    evaluate_traceroute,
     evaluate_verification,
 )
 from .config_suite import (
@@ -62,6 +64,7 @@ from .script_backend import (
     save_project_js,
     set_port_power_js,
     start_ping_js,
+    start_traceroute_js,
     switch_vlan_state_js,
     terminal_state_js,
     topology_state_js,
@@ -336,6 +339,45 @@ def _run_ping(
             if parsed.get("complete"):
                 return parsed
     return parsed or {"success": False, "complete": False, "raw_output": output}
+
+
+def _run_traceroute(
+    bridge: PTBridgeServer,
+    audit: JsonlAuditLogger,
+    *,
+    label: str,
+    device: str,
+    destination: str,
+    timeout: float,
+) -> dict[str, object]:
+    start = _logged_command(
+        bridge,
+        audit,
+        f"{label}_dispatch",
+        start_traceroute_js(device, destination),
+    )
+    if not isinstance(start, dict) or "outputStart" not in start:
+        raise ScriptBridgeError(f"Invalid traceroute start result: {start!r}")
+    offset = int(start["outputStart"])
+    output = ""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        time.sleep(0.5)
+        candidate = _logged_read(
+            bridge,
+            audit,
+            f"{label}_read_output",
+            read_command_output_js(device, offset),
+            timeout=min(max(timeout / 3, 4.0), 12.0),
+        )
+        if isinstance(candidate, dict) and isinstance(candidate.get("output"), str):
+            output = str(candidate["output"])
+            if "trace complete" in output.lower():
+                break
+    return {
+        "complete": "trace complete" in output.lower(),
+        "raw_output": output,
+    }
 
 
 def _logged_command(
@@ -1619,6 +1661,52 @@ def _run_dsl_verification(
     return results
 
 
+def _run_dsl_advanced_verification(
+    bridge: PTBridgeServer,
+    audit: JsonlAuditLogger,
+    network: CompiledNetwork,
+    *,
+    label: str,
+    traceroute_timeout: float,
+) -> dict[str, object]:
+    route_cache: dict[str, object] = {}
+    route_results: list[dict[str, object]] = []
+    for index, spec in enumerate(network.route_assertions, start=1):
+        if spec.device not in route_cache:
+            route_cache[spec.device] = _logged_command(
+                bridge,
+                audit,
+                f"{label}_route_state_{spec.device}",
+                routing_state_js(spec.device),
+            )
+        result = evaluate_route_assertion(
+            spec,
+            route_cache[spec.device],
+        )
+        route_results.append(result.to_dict())
+
+    traceroute_results: list[dict[str, object]] = []
+    for index, spec in enumerate(network.traceroutes, start=1):
+        address = destination_ip(network, spec.destination)
+        trace = _run_traceroute(
+            bridge,
+            audit,
+            label=f"{label}_traceroute_{index:02d}",
+            device=spec.source,
+            destination=address,
+            timeout=traceroute_timeout,
+        )
+        result = evaluate_traceroute(
+            spec,
+            str(trace["raw_output"]),
+        )
+        traceroute_results.append(result.to_dict())
+    return {
+        "route_assertions": route_results,
+        "traceroutes": traceroute_results,
+    }
+
+
 def _wait_for_protocol_convergence(
     bridge: PTBridgeServer,
     audit: JsonlAuditLogger,
@@ -2491,6 +2579,14 @@ def command_deploy_dsl(args: argparse.Namespace) -> int:
             "dsl_deploy",
             rounds=args.convergence_rounds,
         )
+        advanced_verification = _run_dsl_advanced_verification(
+            bridge,
+            audit,
+            network,
+            label="dsl_advanced",
+            traceroute_timeout=args.traceroute_timeout,
+        )
+        report["advanced_verification"] = advanced_verification
         dhcp_leases: list[object] = []
         for item in network.dhcp_clients:
             dhcp_leases.append(
@@ -2614,6 +2710,14 @@ def command_deploy_dsl(args: argparse.Namespace) -> int:
                 )
             )
         report["dhcp_clients_after_reopen"] = reopened_dhcp_clients
+        advanced_after = _run_dsl_advanced_verification(
+            bridge,
+            audit,
+            network,
+            label="dsl_advanced_after_reopen",
+            traceroute_timeout=args.traceroute_timeout,
+        )
+        report["advanced_verification_after_reopen"] = advanced_after
         verification_after = _run_dsl_verification(
             bridge,
             audit,
@@ -2623,9 +2727,16 @@ def command_deploy_dsl(args: argparse.Namespace) -> int:
         )
         report["verification_after_reopen"] = verification_after
 
+        advanced_passed = all(
+            item.get("passed")
+            for group in (advanced_verification, advanced_after)
+            for key in ("route_assertions", "traceroutes")
+            for item in group.get(key, [])
+        )
         passed = (
             all(item.get("passed") for item in verification)
             and all(item.get("passed") for item in verification_after)
+            and advanced_passed
             and all(
                 item.get("passed")
                 for item in report.get("verification_after_failure", [])
@@ -2696,6 +2807,7 @@ def build_parser() -> argparse.ArgumentParser:
     deploy_dsl.add_argument("--connect-timeout", type=float, default=90.0)
     deploy_dsl.add_argument("--cli-timeout", type=float, default=45.0)
     deploy_dsl.add_argument("--ping-timeout", type=float, default=25.0)
+    deploy_dsl.add_argument("--traceroute-timeout", type=float, default=40.0)
     deploy_dsl.add_argument("--save-timeout", type=float, default=20.0)
     deploy_dsl.add_argument("--convergence-rounds", type=int, default=3)
     deploy_dsl.set_defaults(func=command_deploy_dsl)
