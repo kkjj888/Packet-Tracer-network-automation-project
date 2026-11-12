@@ -116,6 +116,34 @@ cross-subnet routing through YAML-generated interface and OSPF commands.
 All ten examples validate, compile, deploy to local Packet Tracer, save,
 reopen, and repeat their positive or negative connectivity assertions.
 
+## Advanced Acceptance
+
+The `verification` section also supports structured route and path checks.
+
+```yaml
+verification:
+  route_assertions:
+    - device: r1
+      destination: 172.16.20.0/24
+      protocol: ospf
+      next_hop: 10.0.0.2
+      admin_distance: 110
+
+  traceroute_tests:
+    - name: static-path
+      source: pc1
+      destination: pc2
+      expected_hops:
+        - 172.16.10.1
+        - 10.0.0.2
+        - 172.16.20.20
+```
+
+Route assertions read PT's structured routing table and match destination,
+mask, protocol, next-hop, interface, and administrative distance. Traceroute
+tests require both `Trace complete` and an exact hop sequence. Both checks run
+again after the PKT is reopened.
+
 ## Dependency Setup
 
 ```powershell
