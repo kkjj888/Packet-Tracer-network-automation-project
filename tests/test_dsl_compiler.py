@@ -73,6 +73,17 @@ class DslCompilerTests(unittest.TestCase):
         self.assertIn('"id":"sw1"', script)
         self.assertIn('"from":"pc1:FastEthernet0"', script)
 
+    def test_topology_js_keeps_module_objects_and_serial_cable_id(self) -> None:
+        document = load_yaml_document(
+            PROJECT_ROOT / "examples" / "g02-medical-campus.yaml"
+        )
+        script = topology_js(compile_network_dsl(document))
+        self.assertIn(
+            '"modules":[{"name":"HWIC-2T","slot":"0/0"}]',
+            script,
+        )
+        self.assertIn('"cable":8106', script)
+
     def test_invalid_document_is_rejected_before_compilation(self) -> None:
         document = copy.deepcopy(self.ospf)
         document["ipv4"][0]["gateway"] = "10.10.10.1"

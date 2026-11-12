@@ -1180,7 +1180,10 @@ def topology_js(network: CompiledNetwork) -> str:
             "model": device.model,
             "x": device.x,
             "y": device.y,
-            "modules": list(device.modules),
+            "modules": [
+                {"name": name, "slot": slot}
+                for name, slot in device.modules
+            ],
             "wireless": device.device_id in wireless_clients,
         }
         for device in network.devices
