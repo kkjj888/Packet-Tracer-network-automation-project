@@ -86,6 +86,7 @@ class TracerouteResult:
 
 
 _ROUTE_PROTOCOLS = {
+    "66": "bgp",
     "67": "connected",
     "76": "local",
     "79": "ospf",

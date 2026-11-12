@@ -268,6 +268,7 @@ def associate_wireless_client_js(
     }}
     if(wirelessPort)wirelessPort.setDhcpClientFlag(true);
     try{{d.setDhcpFlag(true);}}catch(e){{}}
+    try{{d.getCommandLine().enterCommand("ipconfig /renew");}}catch(e){{}}
     return JSON.stringify({{
       device:{device_text},
       ssid:String(p.getSsid&&p.getSsid()||""),
@@ -312,6 +313,7 @@ def configure_dhcp_client_js(device: str, port: str) -> str:
     var p=d.getPort({port_text});
     if(!p)return "ERROR:port_not_found";
     p.setDhcpClientFlag(true);
+    try{{d.getCommandLine().enterCommand("ipconfig /renew");}}catch(e){{}}
     return JSON.stringify({{
       device:{device_text},
       port:{port_text},

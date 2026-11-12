@@ -1024,7 +1024,7 @@
           "$ref": "#/$defs/ipv4_cidr"
         },
         "protocol": {
-          "enum": ["connected", "local", "static", "rip", "ospf"]
+          "enum": ["connected", "local", "static", "rip", "ospf", "bgp"]
         },
         "next_hop": {
           "$ref": "#/$defs/ipv4"

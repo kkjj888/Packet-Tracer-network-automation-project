@@ -1005,18 +1005,19 @@ verification:
   route_assertions:
     - device: G02-HQ-R1
       destination: 198.18.1.1/32
-      protocol: static
+      protocol: bgp
       next_hop: 192.0.2.10
+      admin_distance: 20
     - device: G02-ISP-R1
       destination: 192.0.2.144/29
       protocol: static
       next_hop: 192.0.2.9
     - device: G02-HQ-COREB
-      destination: 10.22.4.0/25
+      destination: 10.22.4.0/27
       protocol: ospf
       admin_distance: 110
     - device: G02-ZX-R1
-      destination: 10.22.0.0/24
+      destination: 10.22.0.0/26
       protocol: ospf
       admin_distance: 110
   traceroute_tests:
@@ -1024,8 +1025,7 @@ verification:
       source: G02-HQ-PC-WARD1
       destination: G02-HQ-SRV-WEB
       expected_hops:
-        - 10.22.0.62
-        - 10.22.0.190
+        - 10.22.0.60
         - 10.22.0.178
   device_output_assertions:
     - name: hsrp-core-a-active
@@ -1046,12 +1046,12 @@ verification:
       expected_contains: [Tunnel0, up]
     - name: bgp-hq-established
       device: G02-HQ-R1
-      command: show ip bgp summary
-      expected_contains: [Established]
+      command: show ip bgp neighbors
+      expected_contains: ["BGP state = Established"]
     - name: bgp-isp-established
       device: G02-ISP-R1
-      command: show ip bgp summary
-      expected_contains: [Established]
+      command: show ip bgp neighbors
+      expected_contains: ["BGP state = Established"]
     - name: static-nat-published
       device: G02-HQ-R1
       command: show running-config | include ip nat inside source static
