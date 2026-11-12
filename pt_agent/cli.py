@@ -1065,7 +1065,7 @@ def _run_ios_cli(
                 "after": str(dispatch.get("prompt", "")),
             }
         )
-        time.sleep(0.05)
+        time.sleep(0.25)
     assert output_start is not None
     time.sleep(0.35)
     readback = _logged_read(
