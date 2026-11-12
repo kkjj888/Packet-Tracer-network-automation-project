@@ -43,7 +43,7 @@ vlan_assignments:
     port: GigabitEthernet0/1
     mode: trunk
     native_vlan: 1
-    allowed_vlans: [10, 20]
+    allowed_vlans: [1, 10, 20]
   - device: sw2
     port: FastEthernet0/1
     mode: access
@@ -56,7 +56,7 @@ vlan_assignments:
     port: GigabitEthernet0/1
     mode: trunk
     native_vlan: 1
-    allowed_vlans: [10, 20]
+    allowed_vlans: [1, 10, 20]
 
 ipv4:
   - device: pc1

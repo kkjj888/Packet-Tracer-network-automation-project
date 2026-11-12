@@ -13,6 +13,7 @@ from pathlib import Path
 
 from .audit import JsonlAuditLogger
 from .diagnostics import diagnose_host_address
+from .dsl_compiler import DslCompileError, compile_network_dsl
 from .config_suite import (
     acl_apply_commands,
     acl_router_config_commands,
@@ -114,6 +115,26 @@ def command_validate_dsl(args: argparse.Namespace) -> int:
         return 1
     _json_print(result.to_dict())
     return 0 if result.valid else 1
+
+
+def command_compile_dsl(args: argparse.Namespace) -> int:
+    try:
+        document = load_yaml_document(args.path)
+        network = compile_network_dsl(document)
+    except (DslCompileError, ValueError) as exc:
+        _json_print({"compiled": False, "error": str(exc)})
+        return 1
+    payload = network.to_dict()
+    if args.output:
+        output = Path(args.output).resolve()
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        payload["output_path"] = str(output)
+    _json_print(payload)
+    return 0
 
 
 def command_launch_gui(args: argparse.Namespace) -> int:
@@ -2331,6 +2352,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="JSON Schema file path",
     )
     validate_dsl.set_defaults(func=command_validate_dsl)
+
+    compile_dsl = subparsers.add_parser(
+        "compile-dsl",
+        help="Compile YAML DSL into topology, configuration, and verification plans",
+    )
+    compile_dsl.add_argument("path")
+    compile_dsl.add_argument("--output")
+    compile_dsl.set_defaults(func=command_compile_dsl)
 
     launch = subparsers.add_parser(
         "launch-gui", help="Launch Packet Tracer with the Script Module workflow"
