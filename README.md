@@ -14,9 +14,22 @@ install a PT Script Module
 -> reopen it and read back device/link counts
 ```
 
-No agent, LLM, frontend, YAML DSL, or routing configuration is part of this milestone.
+The current backend includes a YAML network DSL, JSON Schema validation,
+network-semantic checks, command-safety checks, and verified Packet Tracer
+configuration/acceptance loops. Agent and frontend integration remain later
+milestones.
 
 ## Current Result
+
+Validate a network DSL document:
+
+```powershell
+python -m pt_agent validate-dsl examples\campus-vlan.yaml
+python -m pt_agent validate-dsl examples\ospf-routing.yaml
+```
+
+See [`docs/DSL_VALIDATION.md`](docs/DSL_VALIDATION.md) for the DSL structure,
+validation layers, and safety behavior.
 
 The Script Engine route has been verified end to end against Packet Tracer
 9.0.1:
