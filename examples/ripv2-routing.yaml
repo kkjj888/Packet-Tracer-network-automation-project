@@ -1,0 +1,60 @@
+version: 1
+project: ripv2-vlsm-routing
+
+devices:
+  - id: r1
+    type: router
+    model: "2911"
+  - id: r2
+    type: router
+    model: "2911"
+  - id: pc1
+    type: pc
+    model: PC-PT
+  - id: pc2
+    type: pc
+    model: PC-PT
+
+links:
+  - from: pc1:FastEthernet0
+    to: r1:GigabitEthernet0/0
+  - from: pc2:FastEthernet0
+    to: r2:GigabitEthernet0/0
+  - from: r1:GigabitEthernet0/1
+    to: r2:GigabitEthernet0/1
+
+ipv4:
+  - device: r1
+    port: GigabitEthernet0/0
+    address: 172.16.10.1/24
+  - device: r1
+    port: GigabitEthernet0/1
+    address: 10.0.0.1/30
+  - device: r2
+    port: GigabitEthernet0/0
+    address: 172.16.20.1/24
+  - device: r2
+    port: GigabitEthernet0/1
+    address: 10.0.0.2/30
+  - device: pc1
+    port: FastEthernet0
+    address: 172.16.10.10/24
+    gateway: 172.16.10.1
+  - device: pc2
+    port: FastEthernet0
+    address: 172.16.20.20/24
+    gateway: 172.16.20.1
+
+routing:
+  rip:
+    version: 2
+    auto_summary: false
+    devices: [r1, r2]
+    networks: [172.16.0.0, 10.0.0.0]
+
+verification:
+  connectivity:
+    - name: ripv2-vlsm-routing
+      source: pc1
+      destination: pc2
+      expected: pass

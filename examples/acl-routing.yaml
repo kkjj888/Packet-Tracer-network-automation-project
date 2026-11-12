@@ -1,0 +1,75 @@
+version: 1
+project: acl-branch-policy
+
+devices:
+  - id: r1
+    type: router
+    model: "2911"
+  - id: sw1
+    type: switch
+    model: 2960-24TT
+  - id: pc1
+    type: pc
+    model: PC-PT
+  - id: pc2
+    type: pc
+    model: PC-PT
+  - id: pc3
+    type: pc
+    model: PC-PT
+
+links:
+  - from: pc1:FastEthernet0
+    to: r1:GigabitEthernet0/0
+  - from: pc2:FastEthernet0
+    to: sw1:FastEthernet0/1
+  - from: pc3:FastEthernet0
+    to: sw1:FastEthernet0/2
+  - from: r1:GigabitEthernet0/1
+    to: sw1:GigabitEthernet0/1
+
+ipv4:
+  - device: r1
+    port: GigabitEthernet0/0
+    address: 192.168.10.1/24
+  - device: r1
+    port: GigabitEthernet0/1
+    address: 192.168.20.1/24
+  - device: pc1
+    port: FastEthernet0
+    address: 192.168.10.10/24
+    gateway: 192.168.10.1
+  - device: pc2
+    port: FastEthernet0
+    address: 192.168.20.20/24
+    gateway: 192.168.20.1
+  - device: pc3
+    port: FastEthernet0
+    address: 192.168.20.30/24
+    gateway: 192.168.20.1
+
+acls:
+  - id: "10"
+    rules:
+      - action: deny
+        match: host
+        address: 192.168.10.10
+      - action: permit
+        match: any
+
+acl_bindings:
+  - device: r1
+    port: GigabitEthernet0/1
+    acl: "10"
+    direction: out
+
+verification:
+  connectivity:
+    - name: blocked-client-to-server-subnet
+      source: pc1
+      destination: pc2
+      expected: fail
+    - name: other-client-to-server-subnet
+      source: pc3
+      destination: pc2
+      expected: pass
