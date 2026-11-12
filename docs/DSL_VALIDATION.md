@@ -59,6 +59,8 @@ template and tests; the system does not execute arbitrary LLM command output.
 
 - `examples/campus-vlan.yaml`: VLAN access ports, inter-switch trunk, and
   expected connectivity.
+- `examples/inter-vlan-routing.yaml`: router-on-a-stick subinterfaces and
+  inter-VLAN forwarding.
 - `examples/ospf-routing.yaml`: routed IPv4 interfaces and OSPF area 0.
 - `examples/acl-routing.yaml`: one denied source and one permitted source
   through the same router ACL.
@@ -75,6 +77,7 @@ python -m pt_agent validate-dsl examples\campus-vlan.yaml
 python -m pt_agent validate-dsl examples\ospf-routing.yaml
 python -m pt_agent compile-dsl examples\campus-vlan.yaml
 python -m pt_agent deploy-dsl examples\campus-vlan.yaml
+python -m pt_agent deploy-dsl examples\inter-vlan-routing.yaml
 python -m pt_agent deploy-dsl examples\ospf-routing.yaml
 python -m pt_agent deploy-dsl examples\acl-routing.yaml
 python -m pt_agent deploy-dsl examples\static-routing.yaml
