@@ -2509,6 +2509,19 @@ def command_deploy_dsl(args: argparse.Namespace) -> int:
             ping_timeout=args.ping_timeout,
         )
         report["verification"] = verification
+        nat_translations: dict[str, object] = {}
+        for plan in network.command_plans:
+            if plan.module != "nat-pat":
+                continue
+            nat_translations[plan.device] = _run_ios_cli(
+                bridge,
+                audit,
+                label=f"dsl_nat_translations_{plan.device}",
+                device=plan.device,
+                commands=["show ip nat translations"],
+                timeout=args.cli_timeout,
+            )
+        report["nat_translations"] = nat_translations
 
         saved = _save_and_wait(
             bridge,
