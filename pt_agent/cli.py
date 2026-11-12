@@ -1035,6 +1035,14 @@ def _run_ios_cli(
         _logged_command(
             bridge,
             audit,
+            f"{label}_input_warmup",
+            enter_ios_command_js(device, "show clock"),
+            timeout=timeout,
+        )
+        time.sleep(0.4)
+        _logged_command(
+            bridge,
+            audit,
             f"{label}_enable",
             enter_ios_command_js(device, "enable"),
             timeout=timeout,
@@ -2673,6 +2681,68 @@ def command_deploy_dsl(args: argparse.Namespace) -> int:
 
         command_results: list[object] = []
         for index, plan in enumerate(network.command_plans, start=1):
+            if plan.module == "interface-ipv4":
+                interface_target = next(
+                    (
+                        item
+                        for item in network.router_interfaces
+                        if item.device == plan.device
+                    ),
+                    None,
+                )
+                if interface_target is None:
+                    raise ScriptBridgeError(
+                        f"No structured interface plan for {plan.device}"
+                    )
+                structured: dict[str, dict[str, str]] = {}
+                virtual: list[tuple[str, str]] = []
+                for port, address in interface_target.interfaces:
+                    if port.lower().startswith(("loopback", "tunnel")):
+                        virtual.append((port, address))
+                        continue
+                    interface = ipaddress.ip_interface(address)
+                    structured[port] = {
+                        "ip": str(interface.ip),
+                        "mask": str(interface.netmask),
+                    }
+                if structured:
+                    command_results.append(
+                        _logged_command(
+                            bridge,
+                            audit,
+                            f"dsl_plan_{index:02d}_interface-ipv4_structured",
+                            configure_router_ipv4_js(plan.device, structured),
+                            timeout=args.cli_timeout,
+                        )
+                    )
+                if virtual:
+                    commands = ["configure terminal"]
+                    for port, address in virtual:
+                        interface = ipaddress.ip_interface(address)
+                        commands.extend(
+                            [
+                                f"interface {port}",
+                                (
+                                    f"ip address {interface.ip} "
+                                    f"{interface.netmask}"
+                                ),
+                                "no shutdown",
+                                "exit",
+                            ]
+                        )
+                    commands.extend(["end", "write memory"])
+                    command_results.append(
+                        _run_ios_cli(
+                            bridge,
+                            audit,
+                            label=f"dsl_plan_{index:02d}_interface-virtual",
+                            device=plan.device,
+                            commands=commands,
+                            timeout=args.cli_timeout,
+                            prepare_boot_dialog=True,
+                        )
+                    )
+                continue
             command_results.append(
                 _run_ios_cli(
                     bridge,

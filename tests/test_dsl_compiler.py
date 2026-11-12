@@ -48,6 +48,11 @@ class DslCompilerTests(unittest.TestCase):
     def test_compiles_routed_ospf_document(self) -> None:
         network = compile_network_dsl(self.ospf)
         self.assertEqual(len(network.host_addresses), 2)
+        self.assertEqual(len(network.router_interfaces), 2)
+        self.assertEqual(
+            network.router_interfaces[0].interfaces[0][0],
+            "GigabitEthernet0/0",
+        )
         modules = [plan.module for plan in network.command_plans]
         self.assertEqual(modules.count("interface-ipv4"), 2)
         self.assertEqual(modules.count("ospf"), 2)

@@ -110,6 +110,12 @@ class HostAddressConfig:
 
 
 @dataclass(frozen=True)
+class RouterInterfaceConfig:
+    device: str
+    interfaces: tuple[tuple[str, str], ...]
+
+
+@dataclass(frozen=True)
 class DhcpClientConfig:
     device: str
     port: str
@@ -175,6 +181,7 @@ class CompiledNetwork:
     dhcp_clients: tuple[DhcpClientConfig, ...]
     link_failures: tuple[LinkFailure, ...]
     command_plans: tuple[CommandPlan, ...]
+    router_interfaces: tuple[RouterInterfaceConfig, ...]
     verification: tuple[VerificationSpec, ...]
     route_assertions: tuple[RouteAssertionSpec, ...]
     traceroutes: tuple[TracerouteSpec, ...]
@@ -232,6 +239,16 @@ class CompiledNetwork:
                     "commands": list(plan.commands),
                 }
                 for plan in self.command_plans
+            ],
+            "router_interfaces": [
+                {
+                    "device": item.device,
+                    "interfaces": [
+                        {"port": port, "address": address}
+                        for port, address in item.interfaces
+                    ],
+                }
+                for item in self.router_interfaces
             ],
             "verification": [
                 {
@@ -302,6 +319,9 @@ def compile_network_dsl(
     device_types = {device.device_id: device.device_type for device in devices}
     links = tuple(_compile_links(document))
     host_addresses = tuple(_compile_host_addresses(document, device_types))
+    router_interfaces = tuple(
+        _compile_router_interface_configs(document, device_types)
+    )
     dhcp_clients = tuple(_compile_dhcp_clients(document, device_types))
     link_failures = tuple(_compile_link_failures(document))
     plans = tuple(
@@ -329,6 +349,7 @@ def compile_network_dsl(
         dhcp_clients=dhcp_clients,
         link_failures=link_failures,
         command_plans=plans,
+        router_interfaces=router_interfaces,
         verification=tuple(_compile_verification(document)),
         route_assertions=tuple(_compile_route_assertions(document)),
         traceroutes=tuple(_compile_traceroutes(document)),
@@ -403,6 +424,28 @@ def _compile_host_addresses(
             )
         )
     return result
+
+
+def _compile_router_interface_configs(
+    document: Mapping[str, object],
+    device_types: Mapping[str, str],
+) -> list[RouterInterfaceConfig]:
+    grouped: dict[str, list[tuple[str, str]]] = {}
+    for item in _as_list(document.get("ipv4")):
+        if not isinstance(item, dict):
+            continue
+        device = str(item["device"])
+        if device_types.get(device) != "router":
+            continue
+        if item.get("dot1q_vlan") is not None:
+            continue
+        grouped.setdefault(device, []).append(
+            (str(item["port"]), str(item["address"]))
+        )
+    return [
+        RouterInterfaceConfig(device, tuple(interfaces))
+        for device, interfaces in grouped.items()
+    ]
 
 
 def _compile_dhcp_clients(
