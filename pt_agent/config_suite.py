@@ -2,6 +2,26 @@
 
 from __future__ import annotations
 
+import ipaddress
+
+from .compiler.acl import (
+    AclBinding,
+    AclDefinition,
+    AclRule,
+    compile_acl_config,
+)
+from .compiler.interface import (
+    RouterInterface,
+    compile_ipv4_interfaces,
+)
+from .compiler.ospf import OspfNetwork, compile_ospf_config
+from .compiler.rip import RipConfig, compile_rip_config
+from .compiler.trunk import TrunkPort, compile_trunk_config
+from .compiler.vlan import (
+    AccessPort,
+    VlanDefinition,
+    compile_vlan_config,
+)
 from .script_backend import LOGICAL_WORKSPACE
 
 
@@ -106,64 +126,42 @@ def trunk_topology_js() -> str:
 
 
 def vlan_switch_config_commands() -> list[str]:
-    return [
-        "configure terminal",
-        "vlan 10",
-        "name FINANCE",
-        "exit",
-        "vlan 20",
-        "name GUEST",
-        "exit",
-        "interface FastEthernet0/1",
-        "switchport mode access",
-        "switchport access vlan 10",
-        "no shutdown",
-        "exit",
-        "interface FastEthernet0/2",
-        "switchport mode access",
-        "switchport access vlan 10",
-        "no shutdown",
-        "exit",
-        "interface FastEthernet0/3",
-        "switchport mode access",
-        "switchport access vlan 20",
-        "no shutdown",
-        "exit",
-        "end",
-        "write memory",
-        "show vlan brief",
-    ]
+    return compile_vlan_config(
+        "SW1",
+        [
+            VlanDefinition(10, "FINANCE"),
+            VlanDefinition(20, "GUEST"),
+        ],
+        [
+            AccessPort("FastEthernet0/1", 10),
+            AccessPort("FastEthernet0/2", 10),
+            AccessPort("FastEthernet0/3", 20),
+        ],
+    ).as_list()
 
 
 def acl_router_config_commands() -> list[str]:
-    return [
-        "configure terminal",
-        "interface GigabitEthernet0/0",
-        "ip address 192.168.10.1 255.255.255.0",
-        "no shutdown",
-        "exit",
-        "interface GigabitEthernet0/1",
-        "ip address 192.168.20.1 255.255.255.0",
-        "no shutdown",
-        "exit",
-        "end",
-        "write memory",
-        "show ip interface brief",
-    ]
+    return compile_ipv4_interfaces(
+        "R1",
+        [
+            RouterInterface("GigabitEthernet0/0", "192.168.10.1/24"),
+            RouterInterface("GigabitEthernet0/1", "192.168.20.1/24"),
+        ],
+    ).as_list()
 
 
 def acl_apply_commands() -> list[str]:
-    return [
-        "configure terminal",
-        "access-list 10 deny host 192.168.10.10",
-        "access-list 10 permit any",
-        "interface GigabitEthernet0/1",
-        "ip access-group 10 out",
-        "exit",
-        "end",
-        "write memory",
-        "show access-lists 10",
-    ]
+    return compile_acl_config(
+        "R1",
+        AclDefinition(
+            "10",
+            (
+                AclRule("deny", "host", "192.168.10.10"),
+                AclRule("permit", "any"),
+            ),
+        ),
+        [AclBinding("GigabitEthernet0/1", "out")],
+    ).as_list()
 
 
 def show_vlan_commands() -> list[str]:
@@ -175,39 +173,23 @@ def show_acl_commands() -> list[str]:
 
 
 def trunk_switch_config_commands(access_vlans: dict[str, int]) -> list[str]:
-    commands = [
-        "configure terminal",
-        "vlan 10",
-        "name FINANCE",
-        "exit",
-        "vlan 20",
-        "name GUEST",
-        "exit",
-    ]
-    for port, vlan in access_vlans.items():
-        commands.extend(
-            [
-                f"interface {port}",
-                "switchport mode access",
-                f"switchport access vlan {vlan}",
-                "no shutdown",
-                "exit",
-            ]
-        )
-    commands.extend(
+    vlan_commands = compile_vlan_config(
+        "SW1",
         [
-            "interface GigabitEthernet0/1",
-            "switchport mode trunk",
-            "switchport trunk native vlan 1",
-            "switchport trunk allowed vlan all",
-            "no shutdown",
-            "exit",
-            "end",
-            "write memory",
-            "show interfaces trunk",
-        ]
-    )
-    return commands
+            VlanDefinition(10, "FINANCE"),
+            VlanDefinition(20, "GUEST"),
+        ],
+        [
+            AccessPort(port, vlan)
+            for port, vlan in access_vlans.items()
+        ],
+        show=False,
+    ).as_list()
+    trunk_commands = compile_trunk_config(
+        "SW1",
+        [TrunkPort("GigabitEthernet0/1")],
+    ).as_list()
+    return [*vlan_commands, *trunk_commands]
 
 
 def rip_config_commands(
@@ -216,18 +198,10 @@ def rip_config_commands(
     auto_summary: bool = True,
     networks: tuple[str, ...] = ("172.16.0.0", "10.0.0.0"),
 ) -> list[str]:
-    commands = [
-        "configure terminal",
-        "router rip",
-        f"version {version}",
-    ]
-    if not auto_summary:
-        commands.append("no auto-summary")
-    else:
-        commands.append("auto-summary")
-    commands.extend(f"network {network}" for network in networks)
-    commands.extend(["end", "write memory"])
-    return commands
+    return compile_rip_config(
+        "R1",
+        RipConfig(version, networks, auto_summary=auto_summary),
+    ).as_list()
 
 
 def ospf_config_commands(
@@ -235,13 +209,19 @@ def ospf_config_commands(
     *,
     networks: tuple[tuple[str, str, str], ...],
 ) -> list[str]:
-    commands = ["configure terminal", f"router ospf {process_id}"]
-    commands.extend(
-        f"network {network} {wildcard} area {area}"
-        for network, wildcard, area in networks
-    )
-    commands.extend(["end", "write memory"])
-    return commands
+    converted: list[OspfNetwork] = []
+    for network, wildcard, area in networks:
+        wildcard_ip = ipaddress.IPv4Address(wildcard)
+        mask = ipaddress.IPv4Address(int(wildcard_ip) ^ 0xFFFFFFFF)
+        prefix = ipaddress.IPv4Network(f"0.0.0.0/{mask}").prefixlen
+        converted.append(
+            OspfNetwork(f"{network}/{prefix}", int(area))
+        )
+    return compile_ospf_config(
+        "R1",
+        process_id,
+        converted,
+    ).as_list()
 
 
 def show_rip_config_commands() -> list[str]:
