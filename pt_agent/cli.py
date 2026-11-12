@@ -2558,6 +2558,35 @@ def _run_dsl_output_assertions(
     return results
 
 
+def _configure_dsl_host_with_retry(
+    bridge: PTBridgeServer,
+    audit: JsonlAuditLogger,
+    *,
+    label: str,
+    device: str,
+    port: str,
+    ip: str,
+    mask: str,
+    gateway: str | None,
+) -> object:
+    last_error: ScriptBridgeError | None = None
+    for attempt in range(1, 4):
+        try:
+            return _logged_command(
+                bridge,
+                audit,
+                f"{label}_attempt_{attempt}",
+                configure_host_ip_js(device, port, ip, mask, gateway),
+            )
+        except ScriptBridgeError as exc:
+            last_error = exc
+            if "device_not_found" not in str(exc):
+                raise
+            time.sleep(1.0)
+    assert last_error is not None
+    raise last_error
+
+
 def command_deploy_dsl(args: argparse.Namespace) -> int:
     try:
         document = load_yaml_document(args.path)
@@ -2610,23 +2639,21 @@ def command_deploy_dsl(args: argparse.Namespace) -> int:
             "dsl_fast_forward_after_topology",
             fast_forward_js(),
         )
-        time.sleep(1)
+        time.sleep(2)
 
         host_readbacks: list[object] = []
         for item in network.host_addresses:
             interface = ipaddress.ip_interface(item.address)
             host_readbacks.append(
-                _logged_command(
+                _configure_dsl_host_with_retry(
                     bridge,
                     audit,
-                    f"dsl_host_{item.device}",
-                    configure_host_ip_js(
-                        item.device,
-                        item.port,
-                        str(interface.ip),
-                        str(interface.netmask),
-                        item.gateway,
-                    ),
+                    label=f"dsl_host_{item.device}",
+                    device=item.device,
+                    port=item.port,
+                    ip=str(interface.ip),
+                    mask=str(interface.netmask),
+                    gateway=item.gateway,
                 )
             )
         report["host_addresses"] = host_readbacks
