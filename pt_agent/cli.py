@@ -1041,9 +1041,16 @@ def _run_ios_cli(
             f"{label} could not enter privileged mode; prompt={prompt!r}"
         )
 
-    time.sleep(0.4)
     if not commands:
         return {"commands": [], "output": "", "prompts": []}
+    _logged_command(
+        bridge,
+        audit,
+        f"{label}_input_warmup",
+        enter_ios_command_js(device, "show clock"),
+        timeout=timeout,
+    )
+    time.sleep(0.4)
     output_start: int | None = None
     prompts: list[dict[str, str]] = []
     for index, command in enumerate(commands, start=1):
