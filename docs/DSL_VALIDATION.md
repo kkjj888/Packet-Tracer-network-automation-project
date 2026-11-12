@@ -66,6 +66,8 @@ template and tests; the system does not execute arbitrary LLM command output.
   through the same router ACL.
 - `examples/static-routing.yaml`: a default route and a return static route
   between two sites.
+- `examples/dhcp-lan.yaml`: DHCP pool, exclusions, dynamic client lease, and
+  connectivity to a static server.
 - `examples/ripv1-routing.yaml`: expected RIPv1 auto-summary limitation.
 - `examples/ripv2-routing.yaml`: RIPv2 with auto-summary disabled and verified
   VLSM routing.
@@ -81,6 +83,7 @@ python -m pt_agent deploy-dsl examples\inter-vlan-routing.yaml
 python -m pt_agent deploy-dsl examples\ospf-routing.yaml
 python -m pt_agent deploy-dsl examples\acl-routing.yaml
 python -m pt_agent deploy-dsl examples\static-routing.yaml
+python -m pt_agent deploy-dsl examples\dhcp-lan.yaml
 python -m pt_agent deploy-dsl examples\ripv1-routing.yaml
 python -m pt_agent deploy-dsl examples\ripv2-routing.yaml
 ```
