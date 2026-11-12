@@ -391,18 +391,31 @@ def _logged_command(
     expression: str,
     timeout: float | None = None,
 ) -> object:
-    audit.record("command_dispatch", label=label, javascript=expression)
-    try:
-        result = bridge.execute_json(expression, timeout=timeout)
-    except Exception as exc:
+    last_error: Exception | None = None
+    for attempt in range(1, 4):
+        attempt_label = f"{label}_attempt_{attempt}"
         audit.record(
-            "command_failed",
-            label=label,
-            error=f"{type(exc).__name__}: {exc}",
+            "command_dispatch",
+            label=attempt_label,
+            javascript=expression,
         )
-        raise
-    audit.record("command_result", label=label, result=result)
-    return result
+        try:
+            result = bridge.execute_json(expression, timeout=timeout)
+        except Exception as exc:
+            last_error = exc
+            audit.record(
+                "command_failed",
+                label=attempt_label,
+                error=f"{type(exc).__name__}: {exc}",
+            )
+            if "device_not_found" not in str(exc) or attempt == 3:
+                raise
+            time.sleep(0.5)
+            continue
+        audit.record("command_result", label=attempt_label, result=result)
+        return result
+    assert last_error is not None
+    raise last_error
 
 
 def _logged_read(
