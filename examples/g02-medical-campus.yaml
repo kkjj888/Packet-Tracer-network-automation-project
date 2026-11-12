@@ -729,7 +729,6 @@ routing:
         point_to_point_interfaces:
           - GigabitEthernet0/0
           - GigabitEthernet0/1
-          - Tunnel0
         default_information_originate: true
       - device: G02-ZX-R1
         router_id: 10.22.5.10
@@ -737,7 +736,6 @@ routing:
           - GigabitEthernet0/0.203
           - GigabitEthernet0/0.204
           - GigabitEthernet0/0.208
-        point_to_point_interfaces: [Tunnel0]
     networks:
       - device: G02-HQ-COREA
         network: 10.22.5.0/30
