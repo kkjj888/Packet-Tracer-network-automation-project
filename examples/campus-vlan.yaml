@@ -1,0 +1,81 @@
+version: 1
+project: campus-vlan-segmentation
+
+devices:
+  - id: sw1
+    type: switch
+    model: 2960-24TT
+  - id: sw2
+    type: switch
+    model: 2960-24TT
+  - id: pc1
+    type: pc
+    model: PC-PT
+  - id: pc2
+    type: pc
+    model: PC-PT
+  - id: pc3
+    type: pc
+    model: PC-PT
+
+links:
+  - from: pc1:FastEthernet0
+    to: sw1:FastEthernet0/1
+  - from: sw1:GigabitEthernet0/1
+    to: sw2:GigabitEthernet0/1
+  - from: pc2:FastEthernet0
+    to: sw2:FastEthernet0/1
+  - from: pc3:FastEthernet0
+    to: sw2:FastEthernet0/2
+
+vlans:
+  - id: 10
+    name: FINANCE
+  - id: 20
+    name: GUEST
+
+vlan_assignments:
+  - device: sw1
+    port: FastEthernet0/1
+    mode: access
+    vlan: 10
+  - device: sw1
+    port: GigabitEthernet0/1
+    mode: trunk
+    native_vlan: 1
+    allowed_vlans: [10, 20]
+  - device: sw2
+    port: FastEthernet0/1
+    mode: access
+    vlan: 10
+  - device: sw2
+    port: FastEthernet0/2
+    mode: access
+    vlan: 20
+  - device: sw2
+    port: GigabitEthernet0/1
+    mode: trunk
+    native_vlan: 1
+    allowed_vlans: [10, 20]
+
+ipv4:
+  - device: pc1
+    port: FastEthernet0
+    address: 192.168.10.10/24
+  - device: pc2
+    port: FastEthernet0
+    address: 192.168.10.11/24
+  - device: pc3
+    port: FastEthernet0
+    address: 192.168.20.20/24
+
+verification:
+  connectivity:
+    - name: same-vlan-through-trunk
+      source: pc1
+      destination: pc2
+      expected: pass
+    - name: different-vlan-isolated
+      source: pc1
+      destination: pc3
+      expected: fail

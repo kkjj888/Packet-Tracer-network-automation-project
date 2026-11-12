@@ -55,6 +55,7 @@ from .script_backend import (
     router_ipv4_state_js,
 )
 from .script_bridge import PTBridgeServer, ScriptBridgeError
+from .validation import DEFAULT_SCHEMA_PATH, NetworkValidator, load_yaml_document
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -90,6 +91,29 @@ def command_doctor(args: argparse.Namespace) -> int:
     payload["python_executable"] = sys.executable
     _json_print(payload)
     return 0 if not errors else 1
+
+
+def command_validate_dsl(args: argparse.Namespace) -> int:
+    try:
+        document = load_yaml_document(args.path)
+        result = NetworkValidator(args.schema).validate(document)
+    except Exception as exc:
+        _json_print(
+            {
+                "valid": False,
+                "issues": [
+                    {
+                        "severity": "error",
+                        "code": "DSL_LOAD_ERROR",
+                        "path": "$",
+                        "message": str(exc),
+                    }
+                ],
+            }
+        )
+        return 1
+    _json_print(result.to_dict())
+    return 0 if result.valid else 1
 
 
 def command_launch_gui(args: argparse.Namespace) -> int:
@@ -2295,6 +2319,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     doctor = subparsers.add_parser("doctor", help="Validate local paths and config")
     doctor.set_defaults(func=command_doctor)
+
+    validate_dsl = subparsers.add_parser(
+        "validate-dsl",
+        help="Validate a YAML network DSL file against schema and semantics",
+    )
+    validate_dsl.add_argument("path")
+    validate_dsl.add_argument(
+        "--schema",
+        default=str(DEFAULT_SCHEMA_PATH),
+        help="JSON Schema file path",
+    )
+    validate_dsl.set_defaults(func=command_validate_dsl)
 
     launch = subparsers.add_parser(
         "launch-gui", help="Launch Packet Tracer with the Script Module workflow"
