@@ -68,6 +68,8 @@ template and tests; the system does not execute arbitrary LLM command output.
   between two sites.
 - `examples/dhcp-lan.yaml`: DHCP pool, exclusions, dynamic client lease, and
   connectivity to a static server.
+- `examples/nat-pat.yaml`: private-to-public PAT, default route, translation
+  table evidence, and save/reopen verification.
 - `examples/ripv1-routing.yaml`: expected RIPv1 auto-summary limitation.
 - `examples/ripv2-routing.yaml`: RIPv2 with auto-summary disabled and verified
   VLSM routing.
@@ -84,6 +86,7 @@ python -m pt_agent deploy-dsl examples\ospf-routing.yaml
 python -m pt_agent deploy-dsl examples\acl-routing.yaml
 python -m pt_agent deploy-dsl examples\static-routing.yaml
 python -m pt_agent deploy-dsl examples\dhcp-lan.yaml
+python -m pt_agent deploy-dsl examples\nat-pat.yaml
 python -m pt_agent deploy-dsl examples\ripv1-routing.yaml
 python -m pt_agent deploy-dsl examples\ripv2-routing.yaml
 ```
