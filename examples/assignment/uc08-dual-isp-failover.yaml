@@ -42,6 +42,8 @@ routing:
     - {device: R1, network: 0.0.0.0/0, next_hop: 10.255.0.6, interface: GigabitEthernet0/2, admin_distance: 10}
     - {device: R2, network: 0.0.0.0/0, next_hop: 198.51.100.2, interface: GigabitEthernet0/1}
     - {device: R3, network: 0.0.0.0/0, next_hop: 203.0.113.2, interface: GigabitEthernet0/1}
+    - {device: ISP1, network: 10.1.0.0/16, next_hop: 198.51.100.1, interface: GigabitEthernet0/0}
+    - {device: ISP2, network: 10.1.0.0/16, next_hop: 203.0.113.1, interface: GigabitEthernet0/0}
   ospf:
     process_id: 1
     devices: [R1, R2, R3]
