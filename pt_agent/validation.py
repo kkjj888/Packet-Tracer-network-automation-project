@@ -1454,6 +1454,7 @@ _ALLOWED_PATTERNS: tuple[re.Pattern[str], ...] = (
         re.I,
     ),
     re.compile(r"^tunnel mode gre ip$", re.I),
+    re.compile(r"^tunnel mode ipv6ip$", re.I),
     re.compile(r"^no switchport$", re.I),
     re.compile(r"^ip ospf network point-to-point$", re.I),
     re.compile(

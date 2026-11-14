@@ -110,7 +110,7 @@ class Ipv6GreTunnel:
             )
         return [
             f"interface {interface}",
-            "tunnel mode gre ip",
+            "tunnel mode ipv6ip",
             f"tunnel source {require_port(self.source, 'tunnel source')}",
             f"tunnel destination {destination}",
             f"ipv6 address {address.ip}/{address.network.prefixlen}",

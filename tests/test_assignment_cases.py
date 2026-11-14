@@ -61,6 +61,10 @@ class AssignmentCaseTests(unittest.TestCase):
             modules.index("ipv6-gre"),
             modules.index("ipv6"),
         )
+        tunnel_plan = next(
+            plan for plan in network.command_plans if plan.module == "ipv6-gre"
+        )
+        self.assertIn("tunnel mode ipv6ip", tunnel_plan.commands)
 
     def test_uc12_is_rejected_as_impossible_allocation(self) -> None:
         result = NetworkValidator().validate(
