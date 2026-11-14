@@ -39,6 +39,23 @@ Current result:
 - UC-11 uses static endpoints for deterministic policy checks and 18 additional DHCP clients for pool scaling. Final acceptance reads all leases after reopening; any unspecified, link-local, or out-of-pool address fails the run.
 - UC-12 is intentionally not deployable. A successful test means validation exits with code `1` and reports `CHILD_NETWORK_OUTSIDE_PARENT`.
 
+## Troubleshooting Guidance
+
+The reusable model guidance learned from this run is documented in
+[`LLM_TROUBLESHOOTING_PLAYBOOK.md`](LLM_TROUBLESHOOTING_PLAYBOOK.md),
+especially section 4.14 and the Assignment UC knowledge table in section 5.2.
+
+Those rules cover:
+
+- forward and return-route checks;
+- Traceroute expected-hop construction;
+- connected versus learned BGP routes;
+- verifying persisted failover state after reopening;
+- IPv6-over-IPv4 dependency ordering and PT limitations;
+- NAT on VLAN subinterfaces;
+- DHCP traffic through ACLs and lease-completion checks;
+- distinguishing implementation defects from incorrect test expectations.
+
 ## Manual Inspection Bundle
 
 The complete review package is:
