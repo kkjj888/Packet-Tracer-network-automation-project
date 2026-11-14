@@ -34,6 +34,7 @@ from .dsl_deployment import (
     evaluate_traceroute,
     evaluate_verification,
 )
+from .jobs import JobManager, JobOptions
 from .config_suite import (
     acl_apply_commands,
     acl_router_config_commands,
@@ -100,6 +101,27 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 def _json_print(payload: object) -> None:
     print(json.dumps(payload, indent=2, ensure_ascii=False))
+
+
+def _jobs_root(args: argparse.Namespace) -> Path:
+    configured = getattr(args, "data_dir", None)
+    return (
+        Path(configured).expanduser().resolve()
+        if configured
+        else (PROJECT_ROOT / "artifacts" / "jobs").resolve()
+    )
+
+
+def _job_manager(
+    args: argparse.Namespace,
+    *,
+    recover: bool = False,
+) -> JobManager:
+    return JobManager(
+        workspace_root=PROJECT_ROOT,
+        data_root=_jobs_root(args),
+        recover=recover,
+    )
 
 
 def _dhcp_leases_are_valid(
@@ -2701,6 +2723,62 @@ def _configure_dsl_host_with_retry(
     raise last_error
 
 
+def command_job_start(args: argparse.Namespace) -> int:
+    options = JobOptions(
+        bridge_port=args.bridge_port,
+        result_timeout=args.result_timeout,
+        connect_timeout=args.connect_timeout,
+        cli_timeout=args.cli_timeout,
+        ping_timeout=args.ping_timeout,
+        traceroute_timeout=args.traceroute_timeout,
+        save_timeout=args.save_timeout,
+        convergence_rounds=args.convergence_rounds,
+        max_runtime=args.max_runtime,
+    )
+    manager = _job_manager(args, recover=True)
+    _json_print(
+        manager.start(
+            args.path,
+            options=options,
+            detached=True,
+        )
+    )
+    return 0
+
+
+def command_job_status(args: argparse.Namespace) -> int:
+    job = _job_manager(args).get(args.job_id)
+    if job is None:
+        _json_print({"found": False, "job_id": args.job_id})
+        return 1
+    _json_print(job)
+    return 0
+
+
+def command_job_result(args: argparse.Namespace) -> int:
+    result = _job_manager(args).result(args.job_id)
+    if result is None:
+        _json_print({"found": False, "job_id": args.job_id})
+        return 1
+    _json_print(result)
+    return 0
+
+
+def command_job_cancel(args: argparse.Namespace) -> int:
+    job = _job_manager(args).cancel(args.job_id)
+    if job is None:
+        _json_print({"found": False, "job_id": args.job_id})
+        return 1
+    _json_print(job)
+    return 0
+
+
+def command_job_list(args: argparse.Namespace) -> int:
+    jobs = _job_manager(args).list_jobs()
+    _json_print({"count": len(jobs), "jobs": jobs})
+    return 0
+
+
 def command_deploy_dsl(args: argparse.Namespace) -> int:
     try:
         document = load_yaml_document(args.path)
@@ -2709,7 +2787,11 @@ def command_deploy_dsl(args: argparse.Namespace) -> int:
         _json_print({"deployed": False, "error": str(exc)})
         return 1
 
-    artifacts = PROJECT_ROOT / "artifacts"
+    artifacts = (
+        Path(args.artifacts_dir).expanduser().resolve()
+        if getattr(args, "artifacts_dir", None)
+        else PROJECT_ROOT / "artifacts"
+    )
     artifacts.mkdir(parents=True, exist_ok=True)
     slug = re.sub(r"[^A-Za-z0-9._-]+", "-", network.project).strip("-")
     slug = slug or "network"
@@ -3240,6 +3322,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Validate, compile, deploy, save, reopen, and verify a YAML network",
     )
     deploy_dsl.add_argument("path")
+    deploy_dsl.add_argument("--artifacts-dir")
     deploy_dsl.add_argument("--bridge-port", type=int, default=54321)
     deploy_dsl.add_argument("--result-timeout", type=float, default=30.0)
     deploy_dsl.add_argument("--connect-timeout", type=float, default=90.0)
@@ -3254,6 +3337,40 @@ def build_parser() -> argparse.ArgumentParser:
         help="Reuse the current topology and replay command plans from this index",
     )
     deploy_dsl.set_defaults(func=command_deploy_dsl)
+
+    job = subparsers.add_parser(
+        "job",
+        help="Start and inspect persistent long-running deployment jobs",
+    )
+    job_actions = job.add_subparsers(dest="job_action", required=True)
+
+    job_start = job_actions.add_parser("start", help="Start a deployment job")
+    job_start.add_argument("path")
+    job_start.add_argument("--data-dir")
+    job_start.add_argument("--bridge-port", type=int, default=54321)
+    job_start.add_argument("--result-timeout", type=float, default=180.0)
+    job_start.add_argument("--connect-timeout", type=float, default=60.0)
+    job_start.add_argument("--cli-timeout", type=float, default=120.0)
+    job_start.add_argument("--ping-timeout", type=float, default=30.0)
+    job_start.add_argument("--traceroute-timeout", type=float, default=45.0)
+    job_start.add_argument("--save-timeout", type=float, default=60.0)
+    job_start.add_argument("--convergence-rounds", type=int, default=3)
+    job_start.add_argument("--max-runtime", type=float, default=1800.0)
+    job_start.set_defaults(func=command_job_start)
+
+    for action, help_text, function in (
+        ("status", "Return the current state of a deployment job", command_job_status),
+        ("result", "Return the persisted result of a deployment job", command_job_result),
+        ("cancel", "Cancel a queued or running deployment job", command_job_cancel),
+    ):
+        command = job_actions.add_parser(action, help=help_text)
+        command.add_argument("job_id")
+        command.add_argument("--data-dir")
+        command.set_defaults(func=function)
+
+    job_list = job_actions.add_parser("list", help="List deployment jobs")
+    job_list.add_argument("--data-dir")
+    job_list.set_defaults(func=command_job_list)
 
     launch = subparsers.add_parser(
         "launch-gui", help="Launch Packet Tracer with the Script Module workflow"
