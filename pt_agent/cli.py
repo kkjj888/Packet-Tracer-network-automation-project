@@ -3073,12 +3073,29 @@ def command_deploy_dsl(args: argparse.Namespace) -> int:
                 )
             )
         report["dhcp_clients_after_reopen"] = reopened_dhcp_clients
+        reopen_specs = (
+            network.failure_verification
+            if network.link_failures and network.failure_verification
+            else network.verification
+        )
+        reopen_routes = (
+            network.failure_route_assertions
+            if network.link_failures and network.failure_route_assertions
+            else network.route_assertions
+        )
+        reopen_traces = (
+            network.failure_traceroutes
+            if network.link_failures and network.failure_traceroutes
+            else network.traceroutes
+        )
         advanced_after = _run_dsl_advanced_verification(
             bridge,
             audit,
             network,
             label="dsl_advanced_after_reopen",
             traceroute_timeout=args.traceroute_timeout,
+            route_assertions=reopen_routes,
+            traceroutes=reopen_traces,
         )
         report["advanced_verification_after_reopen"] = advanced_after
         report["output_assertions_after_reopen"] = _run_dsl_output_assertions(
@@ -3094,6 +3111,7 @@ def command_deploy_dsl(args: argparse.Namespace) -> int:
             network,
             label="dsl_verify_after_reopen",
             ping_timeout=args.ping_timeout,
+            specs=reopen_specs,
         )
         report["verification_after_reopen"] = verification_after
 

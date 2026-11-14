@@ -74,7 +74,7 @@ verification:
     - name: primary-path
       source: PC1
       destination: PUBLIC1
-      expected_hops: [10.1.0.254, 10.255.0.2, 8.8.8.8]
+      expected_hops: [10.1.0.254, 10.255.0.2, 198.51.100.2, 8.8.8.8]
   after_failure:
     connectivity:
       - {name: backup-isp-path, source: PC1, destination: PUBLIC1, expected: pass}
@@ -84,4 +84,4 @@ verification:
       - name: backup-path
         source: PC1
         destination: PUBLIC1
-        expected_hops: [10.1.0.254, 10.255.0.6, 8.8.8.8]
+        expected_hops: [10.1.0.254, 10.255.0.6, 203.0.113.2, 8.8.8.8]
