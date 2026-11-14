@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
+from pt_agent.cli import _dhcp_leases_are_valid
 from pt_agent.dsl_compiler import compile_network_dsl
 from pt_agent.validation import NetworkValidator, load_yaml_document
 
@@ -83,6 +84,21 @@ class AssignmentCaseTests(unittest.TestCase):
         self.assertGreaterEqual(
             sum("udp any any eq bootps" in command for command in renderings),
             2,
+        )
+        self.assertTrue(
+            _dhcp_leases_are_valid(
+                [
+                    {"ip": "192.168.10.2", "mask": "255.255.255.0"},
+                    {"ip": "192.168.20.10", "mask": "255.255.255.0"},
+                ],
+                network.dhcp_networks,
+            )
+        )
+        self.assertFalse(
+            _dhcp_leases_are_valid(
+                [{"ip": "0.0.0.0", "mask": "0.0.0.0"}],
+                network.dhcp_networks,
+            )
         )
 
     def test_uc12_is_rejected_as_impossible_allocation(self) -> None:

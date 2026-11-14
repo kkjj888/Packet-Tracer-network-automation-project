@@ -1849,6 +1849,36 @@ def _wait_for_protocol_convergence(
         time.sleep(0.75)
 
 
+def _collect_dsl_dhcp_leases(
+    bridge: PTBridgeServer,
+    audit: JsonlAuditLogger,
+    network: CompiledNetwork,
+    *,
+    attempts: int = 4,
+) -> list[object]:
+    leases: list[object] = []
+    for attempt in range(1, attempts + 1):
+        leases = []
+        for item in network.dhcp_clients:
+            leases.append(
+                _logged_command(
+                    bridge,
+                    audit,
+                    f"dsl_dhcp_lease_{item.device}_round_{attempt}",
+                    host_ip_state_js(item.device, item.port),
+                )
+            )
+        if _dhcp_leases_are_valid(leases, network.dhcp_networks):
+            return leases
+        _wait_for_protocol_convergence(
+            bridge,
+            audit,
+            f"dsl_dhcp_wait_{attempt}",
+            rounds=3,
+        )
+    return leases
+
+
 def command_routing_suite_demo(args: argparse.Namespace) -> int:
     artifacts = PROJECT_ROOT / "artifacts"
     artifacts.mkdir(parents=True, exist_ok=True)
@@ -2927,17 +2957,11 @@ def command_deploy_dsl(args: argparse.Namespace) -> int:
             label="dsl_output_assertions",
             timeout=args.cli_timeout,
         )
-        dhcp_leases: list[object] = []
-        for item in network.dhcp_clients:
-            dhcp_leases.append(
-                _logged_command(
-                    bridge,
-                    audit,
-                    f"dsl_dhcp_lease_{item.device}",
-                    host_ip_state_js(item.device, item.port),
-                )
-            )
-        report["dhcp_leases"] = dhcp_leases
+        report["dhcp_leases"] = _collect_dsl_dhcp_leases(
+            bridge,
+            audit,
+            network,
+        )
         verification = _run_dsl_verification(
             bridge,
             audit,
@@ -3164,6 +3188,10 @@ def command_deploy_dsl(args: argparse.Namespace) -> int:
             )
             and _dhcp_leases_are_valid(
                 report.get("dhcp_leases", []),
+                network.dhcp_networks,
+            )
+            and _dhcp_leases_are_valid(
+                report.get("dhcp_clients_after_reopen", []),
                 network.dhcp_networks,
             )
             and all(
