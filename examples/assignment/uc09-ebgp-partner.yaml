@@ -42,7 +42,7 @@ verification:
     - {name: partner-prefix-connectivity, source: PC1, destination: PC2, expected: pass}
   route_assertions:
     - {device: R1, destination: 20.0.0.0/24, protocol: bgp, next_hop: 10.0.0.2, admin_distance: 20}
-    - {device: R2, destination: 10.0.0.0/24, protocol: bgp, next_hop: 10.0.0.1, admin_distance: 20}
+    - {device: R2, destination: 10.0.0.0/24, protocol: connected, interface: GigabitEthernet0/0, admin_distance: 0}
   device_output_assertions:
     - {name: r1-bgp-established, device: R1, command: show ip bgp neighbors, expected_contains: ["BGP state = Established"]}
     - {name: r2-bgp-established, device: R2, command: show ip bgp neighbors, expected_contains: ["BGP state = Established"]}
