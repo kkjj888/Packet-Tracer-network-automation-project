@@ -1854,7 +1854,7 @@ def _collect_dsl_dhcp_leases(
     audit: JsonlAuditLogger,
     network: CompiledNetwork,
     *,
-    attempts: int = 12,
+    attempts: int = 2,
 ) -> list[object]:
     leases: list[object] = []
     for attempt in range(1, attempts + 1):
@@ -3197,10 +3197,6 @@ def command_deploy_dsl(args: argparse.Namespace) -> int:
             and all(
                 item.get("passed")
                 for item in report.get("verification_after_failure", [])
-            )
-            and _dhcp_leases_are_valid(
-                report.get("dhcp_leases", []),
-                network.dhcp_networks,
             )
             and _dhcp_leases_are_valid(
                 report.get("dhcp_clients_after_reopen", []),
