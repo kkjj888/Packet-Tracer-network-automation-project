@@ -1854,7 +1854,7 @@ def _collect_dsl_dhcp_leases(
     audit: JsonlAuditLogger,
     network: CompiledNetwork,
     *,
-    attempts: int = 6,
+    attempts: int = 12,
 ) -> list[object]:
     leases: list[object] = []
     for attempt in range(1, attempts + 1):
