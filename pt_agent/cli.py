@@ -1854,7 +1854,7 @@ def _collect_dsl_dhcp_leases(
     audit: JsonlAuditLogger,
     network: CompiledNetwork,
     *,
-    attempts: int = 4,
+    attempts: int = 6,
 ) -> list[object]:
     leases: list[object] = []
     for attempt in range(1, attempts + 1):
@@ -1870,6 +1870,18 @@ def _collect_dsl_dhcp_leases(
             )
         if _dhcp_leases_are_valid(leases, network.dhcp_networks):
             return leases
+        for item, lease in zip(network.dhcp_clients, leases):
+            if _dhcp_leases_are_valid(
+                [lease],
+                network.dhcp_networks,
+            ):
+                continue
+            _logged_command(
+                bridge,
+                audit,
+                f"dsl_dhcp_retry_{item.device}_round_{attempt}",
+                configure_dhcp_client_js(item.device, item.port),
+            )
         _wait_for_protocol_convergence(
             bridge,
             audit,
