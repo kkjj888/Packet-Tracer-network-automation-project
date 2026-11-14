@@ -138,6 +138,52 @@ class CommandSafetyTests(unittest.TestCase):
         issues = self.validator.validate(["reload"])
         self.assertEqual(issues[0].code, "DANGEROUS_COMMAND")
 
+    def test_extended_dangerous_command_matrix_is_blocked(self) -> None:
+        commands = [
+            "reload",
+            "reload in 5",
+            "write erase",
+            "wr er",
+            "erase startup-config",
+            "format flash:",
+            "delete flash:config.text",
+            "config-register 0x2102",
+            "boot system flash:c2900.bin",
+            "copy flash:image.bin tftp:",
+            "configure replace nvram:backup.cfg force",
+            "archive rollback latest",
+            "crypto key zeroize rsa",
+            "tclsh",
+            "debug all",
+            "clear ip bgp *",
+            "shutdown",
+            "do reload",
+            "do write erase",
+            "no ip routing",
+            "no access-group 120 in",
+            "no logging console",
+        ]
+        for command in commands:
+            with self.subTest(command=command):
+                issues = self.validator.validate([command])
+                self.assertTrue(
+                    any(issue.code == "DANGEROUS_COMMAND" for issue in issues),
+                    issues,
+                )
+
+    def test_control_characters_are_blocked(self) -> None:
+        issues = self.validator.validate(["show clock\x00reload"])
+        self.assertEqual(issues[0].code, "CONTROL_CHARACTER_IN_COMMAND")
+
+    def test_dangerous_words_in_read_only_filters_are_allowed(self) -> None:
+        commands = [
+            "no shutdown",
+            "show running-config | include reload",
+            "show logging | include delete",
+            "write memory",
+        ]
+        self.assertEqual(self.validator.validate(commands), [])
+
     def test_injection_and_multiline_commands_are_blocked(self) -> None:
         issues = self.validator.validate(
             [
@@ -150,7 +196,7 @@ class CommandSafetyTests(unittest.TestCase):
         self.assertIn("NEWLINE_IN_COMMAND", codes)
 
     def test_unknown_command_fails_closed(self) -> None:
-        issues = self.validator.validate(["run arbitrary script"])
+        issues = self.validator.validate(["apply magic profile"])
         self.assertEqual(issues[0].code, "COMMAND_NOT_ALLOWLISTED")
 
 

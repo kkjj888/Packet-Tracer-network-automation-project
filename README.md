@@ -27,6 +27,9 @@ For LLM-assisted fault localization and repair, use
 It defines the evidence order, minimum-repair policy, regression checks, and
 Packet Tracer-specific failure knowledge used by the project.
 
+Command allowlisting, destructive-command isolation, and audit evidence are
+documented in [`docs/COMMAND_SAFETY.md`](docs/COMMAND_SAFETY.md).
+
 ## Current Result
 
 Validate a network DSL document:

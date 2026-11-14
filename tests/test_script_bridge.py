@@ -8,10 +8,13 @@ from pt_agent.script_backend import (
     configure_host_ip_js,
     configure_switch_vlans_js,
     configure_trunk_port_js,
+    enter_ios_command_js,
     minimal_topology_js,
     routing_state_js,
     save_project_js,
     set_port_power_js,
+    start_ping_js,
+    start_traceroute_js,
     topology_state_js,
 )
 from pt_agent.script_bridge import decode_result_hex, wrap_expression
@@ -19,9 +22,22 @@ from pt_agent.cli import parse_ping_output
 from pt_agent.cli import _parse_acl_output, _parse_vlan_output
 from pt_agent.config_suite import rip_config_commands
 from pt_agent.diagnostics import diagnose_host_address
+from pt_agent.validation import CommandSafetyError
 
 
 class ScriptBridgeTests(unittest.TestCase):
+    def test_raw_ios_entrypoint_rejects_dangerous_commands(self) -> None:
+        with self.assertRaises(CommandSafetyError):
+            enter_ios_command_js("R1", "reload")
+        with self.assertRaises(CommandSafetyError):
+            enter_ios_command_js("R1", "do write erase")
+
+    def test_ping_and_traceroute_require_ipv4_destinations(self) -> None:
+        with self.assertRaises(CommandSafetyError):
+            start_ping_js("PC1", "1.1.1.1; reload")
+        with self.assertRaises(CommandSafetyError):
+            start_traceroute_js("PC1", "example.com")
+
     def test_wrap_expression(self) -> None:
         wrapped = wrap_expression('return "hello";', 54321)
         self.assertTrue(wrapped.startswith("__mcpEval("))

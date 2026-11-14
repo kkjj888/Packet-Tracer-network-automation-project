@@ -78,7 +78,13 @@ from .script_backend import (
     router_ipv4_state_js,
 )
 from .script_bridge import PTBridgeServer, ScriptBridgeError
-from .validation import DEFAULT_SCHEMA_PATH, NetworkValidator, load_yaml_document
+from .validation import (
+    DEFAULT_SCHEMA_PATH,
+    CommandSafetyError,
+    CommandSafetyValidator,
+    NetworkValidator,
+    load_yaml_document,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -137,6 +143,18 @@ def command_validate_dsl(args: argparse.Namespace) -> int:
         return 1
     _json_print(result.to_dict())
     return 0 if result.valid else 1
+
+
+def command_check_commands(args: argparse.Namespace) -> int:
+    issues = CommandSafetyValidator().validate(list(args.commands))
+    _json_print(
+        {
+            "safe": not issues,
+            "commands": list(args.commands),
+            "issues": [issue.to_dict() for issue in issues],
+        }
+    )
+    return 0 if not issues else 1
 
 
 def command_compile_dsl(args: argparse.Namespace) -> int:
@@ -988,6 +1006,25 @@ def _run_ios_cli(
     timeout: float,
     prepare_boot_dialog: bool = False,
 ) -> dict[str, object]:
+    if commands:
+        safety_issues = CommandSafetyValidator().validate(commands)
+        if safety_issues:
+            audit.record(
+                "command_blocked",
+                label=label,
+                device=device,
+                commands=list(commands),
+                issues=[issue.to_dict() for issue in safety_issues],
+            )
+            details = "; ".join(
+                f"{issue.code}: {issue.message}"
+                for issue in safety_issues
+            )
+            print(
+                f"SECURITY BLOCK [{label}] {device}: {details}",
+                file=sys.stderr,
+            )
+            raise CommandSafetyError(details)
     state = _logged_read(
         bridge,
         audit,
@@ -1002,7 +1039,11 @@ def _run_ios_cli(
             bridge,
             audit,
             f"{label}_dismiss_initial_config",
-            enter_ios_command_js(device, "no"),
+            enter_ios_command_js(
+                device,
+                "no",
+                trusted_control=True,
+            ),
             timeout=timeout,
         )
         time.sleep(0.8)
@@ -1020,7 +1061,11 @@ def _run_ios_cli(
             bridge,
             audit,
             f"{label}_continue_boot",
-            enter_ios_command_js(device, ""),
+            enter_ios_command_js(
+                device,
+                "",
+                trusted_control=True,
+            ),
             timeout=timeout,
         )
         time.sleep(0.8)
@@ -3044,6 +3089,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="JSON Schema file path",
     )
     validate_dsl.set_defaults(func=command_validate_dsl)
+
+    check_commands = subparsers.add_parser(
+        "check-commands",
+        help="Validate IOS commands against the allowlist and destructive blacklist",
+    )
+    check_commands.add_argument(
+        "commands",
+        nargs="+",
+        help="Quoted command strings to validate; nothing is executed",
+    )
+    check_commands.set_defaults(func=command_check_commands)
 
     compile_dsl = subparsers.add_parser(
         "compile-dsl",

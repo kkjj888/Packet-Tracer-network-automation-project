@@ -64,6 +64,10 @@ class ValidationResult:
         }
 
 
+class CommandSafetyError(RuntimeError):
+    """A command sequence crossed the safety boundary."""
+
+
 def load_yaml_document(path: str | Path) -> Mapping[str, object]:
     """Load one YAML document and reject non-mapping roots."""
 
@@ -1183,14 +1187,62 @@ class _SemanticChecker:
 
 
 _DANGEROUS_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
-    (re.compile(r"^reload(?:\s|$)", re.I), "reload"),
-    (re.compile(r"^write\s+erase(?:\s|$)", re.I), "write erase"),
-    (re.compile(r"^erase\s+startup-config(?:\s|$)", re.I), "erase startup"),
-    (re.compile(r"^format(?:\s|$)", re.I), "format"),
-    (re.compile(r"^delete(?:\s|$)", re.I), "delete"),
-    (re.compile(r"^confreg(?:\s|$)", re.I), "configuration register"),
-    (re.compile(r"^debug\s+all(?:\s|$)", re.I), "debug all"),
+    (re.compile(r"^(?:rel|reload)(?:\s|$)", re.I), "device reload"),
+    (
+        re.compile(r"^(?:wr|write)\s+(?:er|erase)(?:\s|$)", re.I),
+        "startup configuration erase",
+    ),
+    (
+        re.compile(
+            r"^(?:era|erase)\s+"
+            r"(?:start(?:up-config)?|nvram:|flash:)(?:\s|$)",
+            re.I,
+        ),
+        "configuration or storage erase",
+    ),
+    (re.compile(r"^(?:for|format)(?:\s|$)", re.I), "filesystem format"),
+    (re.compile(r"^(?:del|delete)(?:\s|$)", re.I), "file deletion"),
+    (
+        re.compile(r"^(?:confreg|config-register)(?:\s|$)", re.I),
+        "configuration register change",
+    ),
+    (re.compile(r"^boot(?:\s|$)", re.I), "boot system modification"),
+    (re.compile(r"^copy(?:\s|$)", re.I), "file copy or overwrite"),
+    (re.compile(r"^rename(?:\s|$)", re.I), "file rename"),
+    (re.compile(r"^(?:mkdir|rmdir)(?:\s|$)", re.I), "filesystem modification"),
+    (
+        re.compile(r"^configure\s+(?:replace|confirm)(?:\s|$)", re.I),
+        "configuration replacement",
+    ),
+    (
+        re.compile(
+            r"^archive\s+(?:restore|rollback|config\s+rollback)(?:\s|$)",
+            re.I,
+        ),
+        "archive restore or rollback",
+    ),
+    (
+        re.compile(r"^crypto\s+key\s+(?:zeroize|delete)(?:\s|$)", re.I),
+        "crypto key destruction",
+    ),
+    (re.compile(r"^tclsh(?:\s|$)", re.I), "embedded script shell"),
+    (
+        re.compile(r"^(?:bash|sh|exec|run|system)(?:\s|$)", re.I),
+        "embedded command execution",
+    ),
+    (re.compile(r"^debug(?:\s|$)", re.I), "debug overload"),
+    (re.compile(r"^clear(?:\s|$)", re.I), "operational state clear"),
+    (re.compile(r"^shutdown(?:\s|$)", re.I), "interface or service shutdown"),
     (re.compile(r"^no\s+ip\s+routing(?:\s|$)", re.I), "disable routing"),
+    (
+        re.compile(
+            r"^no\s+(?:aaa|access-group|access-class|"
+            r"service\s+password-encryption)(?:\s|$)",
+            re.I,
+        ),
+        "security control removal",
+    ),
+    (re.compile(r"^no\s+logging(?:\s|$)", re.I), "logging removal"),
 )
 
 _ALLOWED_PATTERNS: tuple[re.Pattern[str], ...] = (
@@ -1370,6 +1422,16 @@ class CommandSafetyValidator:
                     )
                 )
                 continue
+            if any(ord(char) < 32 or ord(char) == 127 for char in command):
+                issues.append(
+                    ValidationIssue(
+                        "error",
+                        "CONTROL_CHARACTER_IN_COMMAND",
+                        path,
+                        "control characters are not allowed",
+                    )
+                )
+                continue
             if any(token in command for token in ("`", "$(", "&&", "||", ";")):
                 issues.append(
                     ValidationIssue(
@@ -1379,11 +1441,18 @@ class CommandSafetyValidator:
                         f"unsafe shell-like token in {command!r}",
                     )
                 )
+            inspected_command = re.sub(
+                r"^do\s+",
+                "",
+                command,
+                count=1,
+                flags=re.I,
+            )
             dangerous = next(
                 (
                     description
                     for pattern, description in _DANGEROUS_PATTERNS
-                    if pattern.search(command)
+                    if pattern.search(inspected_command)
                 ),
                 None,
             )

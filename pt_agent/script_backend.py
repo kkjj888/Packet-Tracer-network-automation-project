@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
 from pathlib import Path
+
+from .validation import CommandSafetyError, CommandSafetyValidator
 
 
 LOGICAL_WORKSPACE = (
@@ -658,73 +661,6 @@ def fast_forward_js() -> str:
 })()"""
 
 
-def run_ios_cli_js(
-    device: str,
-    commands: list[str],
-    *,
-    prepare_boot_dialog: bool = False,
-) -> str:
-    device_text = json.dumps(device, ensure_ascii=False)
-    commands_json = json.dumps(commands, ensure_ascii=False)
-    prologue = (
-        'try{d.skipBoot();}catch(e){}'
-        'cl.enterCommand("");'
-        'cl.enterCommand("no");'
-        'cl.enterCommand("");'
-        if prepare_boot_dialog
-        else ""
-    )
-    template = """(function(){
-  try{
-    var d=ipc.network().getDevice(__DEVICE__);
-    if(!d)return "ERROR:device_not_found";
-    var cl=d.getCommandLine();
-    __PROLOGUE__
-    cl.enterCommand("enable");
-    cl.enterCommand("terminal length 0");
-    var before=cl.getOutput().length;
-    var commands=__COMMANDS__;
-    for(var i=0;i<commands.length;i++)cl.enterCommand(commands[i]);
-    return JSON.stringify({
-      commands:commands,
-      outputStart:Number(before),
-      output:String(cl.getOutput()||"").substring(before)
-    });
-  }catch(e){
-    return "ERROR:"+String(e&&e.message?e.message:e);
-  }
-})()"""
-    return (
-        template.replace("__DEVICE__", device_text)
-        .replace("__PROLOGUE__", prologue)
-        .replace("__COMMANDS__", commands_json)
-    )
-
-
-def run_ios_commands_js(device: str, commands: list[str]) -> str:
-    """Enter one command sequence in privileged mode and return its output."""
-
-    device_text = json.dumps(device, ensure_ascii=False)
-    commands_text = json.dumps(commands, ensure_ascii=False)
-    return f"""(function(){{
-  try{{
-    var d=ipc.network().getDevice({device_text});
-    if(!d)return "ERROR:device_not_found";
-    var cl=d.getCommandLine();
-    var before=Number(String(cl.getOutput()||"").length);
-    var commands={commands_text};
-    for(var i=0;i<commands.length;i++)cl.enterCommand(commands[i]);
-    return JSON.stringify({{
-      commands:commands,
-      outputStart:before,
-      prompt:String(cl.getPrompt()||"")
-    }});
-  }}catch(e){{
-    return "ERROR:"+String(e&&e.message?e.message:e);
-  }}
-}})()"""
-
-
 def terminal_state_js(device: str) -> str:
     device_text = json.dumps(device, ensure_ascii=False)
     return f"""(function(){{
@@ -745,7 +681,19 @@ def terminal_state_js(device: str) -> str:
 }})()"""
 
 
-def enter_ios_command_js(device: str, command: str) -> str:
+def enter_ios_command_js(
+    device: str,
+    command: str,
+    *,
+    trusted_control: bool = False,
+) -> str:
+    if not trusted_control:
+        issues = CommandSafetyValidator().validate([command])
+        if issues:
+            details = "; ".join(
+                f"{issue.code}: {issue.message}" for issue in issues
+            )
+            raise CommandSafetyError(details)
     device_text = json.dumps(device, ensure_ascii=False)
     command_text = json.dumps(command, ensure_ascii=False)
     return f"""(function(){{
@@ -861,6 +809,7 @@ def configure_static_routes_js(
 
 
 def start_ping_js(device: str, destination: str) -> str:
+    _require_ipv4(destination, "ping destination")
     device_text = json.dumps(device, ensure_ascii=False)
     destination_text = json.dumps(destination, ensure_ascii=False)
     return f"""(function(){{
@@ -878,6 +827,7 @@ def start_ping_js(device: str, destination: str) -> str:
 
 
 def start_traceroute_js(device: str, destination: str) -> str:
+    _require_ipv4(destination, "traceroute destination")
     device_text = json.dumps(device, ensure_ascii=False)
     destination_text = json.dumps(destination, ensure_ascii=False)
     return f"""(function(){{
@@ -951,4 +901,13 @@ def open_project_js(path: Path) -> str:
     return "ERROR:"+String(e&&e.message?e.message:e);
   }}
 }})()"""
+
+
+def _require_ipv4(value: str, field: str) -> None:
+    try:
+        address = ipaddress.ip_address(value)
+    except ValueError as exc:
+        raise CommandSafetyError(f"{field} is not a valid IP address") from exc
+    if address.version != 4:
+        raise CommandSafetyError(f"{field} must be IPv4")
 
