@@ -187,6 +187,7 @@ class CompiledNetwork:
     host_addresses: tuple[HostAddressConfig, ...]
     host_ipv6_addresses: tuple[HostAddressConfig, ...]
     dhcp_clients: tuple[DhcpClientConfig, ...]
+    dhcp_networks: tuple[str, ...]
     link_failures: tuple[LinkFailure, ...]
     command_plans: tuple[CommandPlan, ...]
     router_interfaces: tuple[RouterInterfaceConfig, ...]
@@ -244,6 +245,7 @@ class CompiledNetwork:
                 {"device": item.device, "port": item.port}
                 for item in self.dhcp_clients
             ],
+            "dhcp_networks": list(self.dhcp_networks),
             "link_failures": [
                 {
                     "name": item.name,
@@ -413,6 +415,7 @@ def compile_network_dsl(
         host_addresses=host_addresses,
         host_ipv6_addresses=host_ipv6_addresses,
         dhcp_clients=dhcp_clients,
+        dhcp_networks=tuple(_compile_dhcp_networks(document)),
         link_failures=link_failures,
         command_plans=plans,
         router_interfaces=router_interfaces,
@@ -602,6 +605,17 @@ def _compile_dhcp_plans(
     return [
         compile_dhcp_config(device, pools)
         for device, pools in grouped.items()
+    ]
+
+
+def _compile_dhcp_networks(document: Mapping[str, object]) -> list[str]:
+    dhcp = document.get("dhcp")
+    if not isinstance(dhcp, dict):
+        return []
+    return [
+        str(item["network"])
+        for item in _as_list(dhcp.get("pools"))
+        if isinstance(item, dict)
     ]
 
 

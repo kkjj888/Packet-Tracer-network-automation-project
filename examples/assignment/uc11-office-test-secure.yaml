@@ -134,7 +134,7 @@ nat:
     - device: R1
       acl_id: "1"
       source_network: 192.168.0.0/16
-      inside_interfaces: [GigabitEthernet0/0, GigabitEthernet0/1]
+      inside_interfaces: [GigabitEthernet0/0.10, GigabitEthernet0/1.20]
       outside_interface: GigabitEthernet0/2
 
 acls:
@@ -145,6 +145,11 @@ acls:
         protocol: ip
         source: {kind: network, address: 192.168.10.0, wildcard: 0.0.0.255}
         destination: {kind: network, address: 192.168.20.0, wildcard: 0.0.0.255}
+      - action: permit
+        protocol: udp
+        source: {kind: any}
+        destination: {kind: any}
+        destination_port_eq: bootps
       - action: permit
         protocol: ip
         source: {kind: network, address: 192.168.10.0, wildcard: 0.0.0.255}
@@ -160,6 +165,11 @@ acls:
         protocol: ip
         source: {kind: network, address: 192.168.20.0, wildcard: 0.0.0.255}
         destination: {kind: network, address: 192.168.10.0, wildcard: 0.0.0.255}
+      - action: permit
+        protocol: udp
+        source: {kind: any}
+        destination: {kind: any}
+        destination_port_eq: bootps
       - action: permit
         protocol: ip
         source: {kind: network, address: 192.168.20.0, wildcard: 0.0.0.255}

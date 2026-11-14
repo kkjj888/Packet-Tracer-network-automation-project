@@ -101,6 +101,27 @@ def _json_print(payload: object) -> None:
     print(json.dumps(payload, indent=2, ensure_ascii=False))
 
 
+def _dhcp_leases_are_valid(
+    leases: object,
+    network_prefixes: tuple[str, ...],
+) -> bool:
+    if not isinstance(leases, list) or not network_prefixes:
+        return True
+    networks = tuple(ipaddress.ip_network(value, strict=True) for value in network_prefixes)
+    for lease in leases:
+        if not isinstance(lease, dict):
+            return False
+        try:
+            address = ipaddress.ip_address(str(lease.get("ip", "")))
+        except ValueError:
+            return False
+        if address.is_link_local or address.is_unspecified:
+            return False
+        if not any(address in network for network in networks):
+            return False
+    return True
+
+
 def _pt_paths(args: argparse.Namespace) -> tuple[Path, Path]:
     pt_root = Path(args.pt_root).resolve() if args.pt_root else DEFAULT_PT_ROOT
     return pt_root, pt_root / "bin" / "PacketTracer.exe"
@@ -3140,6 +3161,10 @@ def command_deploy_dsl(args: argparse.Namespace) -> int:
             and all(
                 item.get("passed")
                 for item in report.get("verification_after_failure", [])
+            )
+            and _dhcp_leases_are_valid(
+                report.get("dhcp_leases", []),
+                network.dhcp_networks,
             )
             and all(
                 item.get("passed")

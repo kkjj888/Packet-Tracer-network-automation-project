@@ -66,6 +66,25 @@ class AssignmentCaseTests(unittest.TestCase):
         )
         self.assertIn("tunnel mode ipv6ip", tunnel_plan.commands)
 
+    def test_uc11_declares_dhcp_networks_and_allows_dhcp_acl(self) -> None:
+        network = compile_network_dsl(
+            load_yaml_document(ASSIGNMENT / "uc11-office-test-secure.yaml")
+        )
+        self.assertEqual(
+            network.dhcp_networks,
+            ("192.168.10.0/24", "192.168.20.0/24"),
+        )
+        renderings = [
+            command
+            for plan in network.command_plans
+            if plan.module == "acl"
+            for command in plan.commands
+        ]
+        self.assertGreaterEqual(
+            sum("udp any any eq bootps" in command for command in renderings),
+            2,
+        )
+
     def test_uc12_is_rejected_as_impossible_allocation(self) -> None:
         result = NetworkValidator().validate(
             load_yaml_document(
