@@ -12,6 +12,7 @@ import time
 import uuid
 from pathlib import Path
 
+from .application import CompilationService, NetworkValidationService
 from .audit import JsonlAuditLogger
 from .diagnostics import diagnose_host_address
 from .dsl_compiler import (
@@ -84,6 +85,7 @@ from .script_backend import (
     router_ipv4_state_js,
 )
 from .script_bridge import PTBridgeServer, ScriptBridgeError
+from .runtime import WindowsPacketTracerRuntime
 from .validation import (
     DEFAULT_SCHEMA_PATH,
     CommandSafetyError,
@@ -94,7 +96,6 @@ from .validation import (
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_PT_ROOT = Path(r"D:\Cisco Packet Tracer 9.0.1")
 
 
 def _json_print(payload: object) -> None:
@@ -122,54 +123,28 @@ def _dhcp_leases_are_valid(
     return True
 
 
-def _pt_paths(args: argparse.Namespace) -> tuple[Path, Path]:
-    pt_root = Path(args.pt_root).resolve() if args.pt_root else DEFAULT_PT_ROOT
-    return pt_root, pt_root / "bin" / "PacketTracer.exe"
+def _pt_runtime(args: argparse.Namespace) -> WindowsPacketTracerRuntime:
+    return WindowsPacketTracerRuntime(
+        PROJECT_ROOT,
+        pt_root=getattr(args, "pt_root", None),
+    )
 
 
 def command_doctor(args: argparse.Namespace) -> int:
-    pt_root, pt_exe = _pt_paths(args)
-    script_module = PROJECT_ROOT / "vendor" / "mcp-bridge.pts"
-    errors: list[str] = []
-    if not pt_exe.is_file():
-        errors.append(f"PacketTracer.exe not found: {pt_exe}")
-    if not script_module.is_file():
-        errors.append(f"Script Module not found: {script_module}")
-    payload = {
-        "pt_root": str(pt_root),
-        "pt_exe": str(pt_exe),
-        "script_module": str(script_module),
-        "pt_installed": pt_exe.is_file(),
-        "script_module_available": script_module.is_file(),
-        "validation_errors": errors,
-    }
+    payload = _pt_runtime(args).doctor()
     payload["python"] = sys.version
     payload["python_executable"] = sys.executable
     _json_print(payload)
-    return 0 if not errors else 1
+    return 0 if not payload["validation_errors"] else 1
 
 
 def command_validate_dsl(args: argparse.Namespace) -> int:
-    try:
-        document = load_yaml_document(args.path)
-        result = NetworkValidator(args.schema).validate(document)
-    except Exception as exc:
-        _json_print(
-            {
-                "valid": False,
-                "issues": [
-                    {
-                        "severity": "error",
-                        "code": "DSL_LOAD_ERROR",
-                        "path": "$",
-                        "message": str(exc),
-                    }
-                ],
-            }
-        )
-        return 1
-    _json_print(result.to_dict())
-    return 0 if result.valid else 1
+    payload = NetworkValidationService(
+        workspace_root=PROJECT_ROOT,
+        schema_path=Path(args.schema),
+    ).validate(args.path)
+    _json_print(payload)
+    return 0 if payload["valid"] else 1
 
 
 def command_check_commands(args: argparse.Namespace) -> int:
@@ -185,30 +160,16 @@ def command_check_commands(args: argparse.Namespace) -> int:
 
 
 def command_compile_dsl(args: argparse.Namespace) -> int:
-    try:
-        document = load_yaml_document(args.path)
-        network = compile_network_dsl(document)
-    except (DslCompileError, ValueError) as exc:
-        _json_print({"compiled": False, "error": str(exc)})
-        return 1
-    payload = network.to_dict()
-    if args.output:
-        output = Path(args.output).resolve()
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(
-            json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
-        payload["output_path"] = str(output)
+    payload = CompilationService(workspace_root=PROJECT_ROOT).compile(
+        args.path,
+        output=args.output,
+    )
     _json_print(payload)
-    return 0
+    return 0 if payload["compiled"] else 1
 
 
 def command_launch_gui(args: argparse.Namespace) -> int:
-    _, pt_exe = _pt_paths(args)
-    if not pt_exe.is_file():
-        raise FileNotFoundError(f"PacketTracer.exe not found: {pt_exe}")
-    process = subprocess.Popen([str(pt_exe)], cwd=str(pt_exe.parent))
+    process = _pt_runtime(args).launch()
     _json_print(
         {
             "pid": process.pid,
