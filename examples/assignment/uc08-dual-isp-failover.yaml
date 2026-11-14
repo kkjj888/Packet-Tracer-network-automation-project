@@ -40,6 +40,8 @@ routing:
   static:
     - {device: R1, network: 0.0.0.0/0, next_hop: 10.255.0.2, interface: GigabitEthernet0/1, admin_distance: 1}
     - {device: R1, network: 0.0.0.0/0, next_hop: 10.255.0.6, interface: GigabitEthernet0/2, admin_distance: 10}
+    - {device: R2, network: 0.0.0.0/0, next_hop: 198.51.100.2, interface: GigabitEthernet0/1}
+    - {device: R3, network: 0.0.0.0/0, next_hop: 203.0.113.2, interface: GigabitEthernet0/1}
   ospf:
     process_id: 1
     devices: [R1, R2, R3]
