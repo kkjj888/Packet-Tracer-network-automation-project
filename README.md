@@ -22,6 +22,11 @@ milestones.
 See [`PROJECT_STATUS.md`](PROJECT_STATUS.md) for the current architecture,
 completed capabilities, test matrix, remaining work, and next milestones.
 
+For LLM-assisted fault localization and repair, use
+[`docs/LLM_TROUBLESHOOTING_PLAYBOOK.md`](docs/LLM_TROUBLESHOOTING_PLAYBOOK.md).
+It defines the evidence order, minimum-repair policy, regression checks, and
+Packet Tracer-specific failure knowledge used by the project.
+
 ## Current Result
 
 Validate a network DSL document:
