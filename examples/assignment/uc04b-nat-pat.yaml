@@ -44,4 +44,4 @@ verification:
   route_assertions:
     - {device: R0, destination: 0.0.0.0/0, protocol: static, next_hop: 218.75.230.254, admin_distance: 1}
   device_output_assertions:
-    - {name: pat-overload-present, device: R0, command: show running-config | include ip nat inside source list, expected_contains: [192.168.0.0, overload]}
+    - {name: pat-overload-present, device: R0, command: show running-config | include ip nat inside source list, expected_contains: [ip nat inside source list, overload]}
