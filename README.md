@@ -26,6 +26,11 @@ The complete assignment UC run, including pass/fail evidence and the manual
 inspection bundle, is documented in
 [`docs/ASSIGNMENT_TEST_CASES.md`](docs/ASSIGNMENT_TEST_CASES.md).
 
+The current agent-facing product boundary is documented in
+[`docs/CLI_SKILL_ARCHITECTURE.md`](docs/CLI_SKILL_ARCHITECTURE.md). It uses a
+Windows-only CLI plus the [`pt-network-automation`](skills/pt-network-automation/SKILL.md)
+skill; MCP is not part of the first product version.
+
 For LLM-assisted fault localization and repair, use
 [`docs/LLM_TROUBLESHOOTING_PLAYBOOK.md`](docs/LLM_TROUBLESHOOTING_PLAYBOOK.md).
 It defines the evidence order, minimum-repair policy, regression checks, and
