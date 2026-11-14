@@ -101,6 +101,68 @@ def configure_host_ip_js(
 }})()"""
 
 
+def configure_host_ipv6_js(
+    device: str,
+    port: str,
+    address: str,
+    gateway: str | None = None,
+) -> str:
+    interface = ipaddress.ip_interface(address)
+    if interface.version != 6:
+        raise CommandSafetyError("host IPv6 address must use an IPv6 prefix")
+    device_text = json.dumps(device, ensure_ascii=False)
+    port_text = json.dumps(port, ensure_ascii=False)
+    ip_text = json.dumps(str(interface.ip), ensure_ascii=False)
+    gateway_line = (
+        f"p.setv6DefaultGateway({json.dumps(gateway, ensure_ascii=False)});"
+        if gateway
+        else ""
+    )
+    return f"""(function(){{
+  try{{
+    var d=ipc.network().getDevice({device_text});
+    if(!d)return "ERROR:device_not_found";
+    var p=d.getPort({port_text});
+    if(!p)return "ERROR:port_not_found";
+    p.setIpv6Enabled(true);
+    p.removeAllIpv6Addresses();
+    var added=p.addIpv6Address({ip_text},{interface.network.prefixlen},0,false);
+    {gateway_line}
+    return JSON.stringify({{
+      device:{device_text},
+      port:{port_text},
+      address:String(p.getUnicastIpv6Address()),
+      prefix:Number(p.getUnicastIpv6Prefix()),
+      added:!!added
+    }});
+  }}catch(e){{
+    return "ERROR:"+String(e&&e.message?e.message:e);
+  }}
+}})()"""
+
+
+def host_ipv6_state_js(device: str, port: str) -> str:
+    device_text = json.dumps(device, ensure_ascii=False)
+    port_text = json.dumps(port, ensure_ascii=False)
+    return f"""(function(){{
+  try{{
+    var d=ipc.network().getDevice({device_text});
+    if(!d)return "ERROR:device_not_found";
+    var p=d.getPort({port_text});
+    if(!p)return "ERROR:port_not_found";
+    return JSON.stringify({{
+      device:{device_text},
+      port:{port_text},
+      enabled:!!p.isIpv6Enabled(),
+      address:String(p.getUnicastIpv6Address()),
+      prefix:Number(p.getUnicastIpv6Prefix())
+    }});
+  }}catch(e){{
+    return "ERROR:"+String(e&&e.message?e.message:e);
+  }}
+}})()"""
+
+
 def install_module_js(device: str, slot: str, model: str) -> str:
     """Install one chassis module using PT's module-tree IPC contract."""
 
@@ -809,7 +871,7 @@ def configure_static_routes_js(
 
 
 def start_ping_js(device: str, destination: str) -> str:
-    _require_ipv4(destination, "ping destination")
+    _require_ip(destination, "ping destination")
     device_text = json.dumps(device, ensure_ascii=False)
     destination_text = json.dumps(destination, ensure_ascii=False)
     return f"""(function(){{
@@ -827,7 +889,7 @@ def start_ping_js(device: str, destination: str) -> str:
 
 
 def start_traceroute_js(device: str, destination: str) -> str:
-    _require_ipv4(destination, "traceroute destination")
+    _require_ip(destination, "traceroute destination")
     device_text = json.dumps(device, ensure_ascii=False)
     destination_text = json.dumps(destination, ensure_ascii=False)
     return f"""(function(){{
@@ -903,11 +965,11 @@ def open_project_js(path: Path) -> str:
 }})()"""
 
 
-def _require_ipv4(value: str, field: str) -> None:
+def _require_ip(value: str, field: str) -> None:
     try:
         address = ipaddress.ip_address(value)
     except ValueError as exc:
         raise CommandSafetyError(f"{field} is not a valid IP address") from exc
-    if address.version != 4:
-        raise CommandSafetyError(f"{field} must be IPv4")
+    if address.version not in (4, 6):
+        raise CommandSafetyError(f"{field} must be an IP address")
 

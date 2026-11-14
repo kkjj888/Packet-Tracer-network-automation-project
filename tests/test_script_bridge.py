@@ -6,6 +6,7 @@ from pathlib import Path
 from pt_agent.script_backend import (
     configure_acl_js,
     configure_host_ip_js,
+    configure_host_ipv6_js,
     configure_switch_vlans_js,
     configure_trunk_port_js,
     enter_ios_command_js,
@@ -32,11 +33,23 @@ class ScriptBridgeTests(unittest.TestCase):
         with self.assertRaises(CommandSafetyError):
             enter_ios_command_js("R1", "do write erase")
 
-    def test_ping_and_traceroute_require_ipv4_destinations(self) -> None:
+    def test_ping_and_traceroute_require_valid_ip_destinations(self) -> None:
         with self.assertRaises(CommandSafetyError):
             start_ping_js("PC1", "1.1.1.1; reload")
         with self.assertRaises(CommandSafetyError):
             start_traceroute_js("PC1", "example.com")
+        self.assertIn('"2001:db8::10"', start_ping_js("PC1", "2001:db8::10"))
+
+    def test_ipv6_host_configuration_uses_native_ipc(self) -> None:
+        script = configure_host_ipv6_js(
+            "PC1",
+            "FastEthernet0",
+            "2001:db8::10/64",
+            "2001:db8::1",
+        )
+        self.assertIn("setIpv6Enabled(true)", script)
+        self.assertIn("addIpv6Address(\"2001:db8::10\",64,0,false)", script)
+        self.assertIn('setv6DefaultGateway("2001:db8::1")', script)
 
     def test_wrap_expression(self) -> None:
         wrapped = wrap_expression('return "hello";', 54321)

@@ -1,0 +1,24 @@
+version: 1
+project: uc12-invalid-allocation
+
+addressing_constraint:
+  parent: 192.168.1.0/25
+  child_networks:
+    - 192.168.1.0/24
+    - 192.168.2.0/24
+    - 192.168.3.0/24
+
+devices:
+  - {id: R1, type: router, model: "2911"}
+  - {id: PC1, type: pc, model: PC-PT}
+
+links:
+  - {from: PC1:FastEthernet0, to: R1:GigabitEthernet0/0}
+
+ipv4:
+  - {device: R1, port: GigabitEthernet0/0, address: 192.168.1.1/24}
+  - {device: PC1, port: FastEthernet0, address: 192.168.1.2/24, gateway: 192.168.1.1}
+
+verification:
+  connectivity:
+    - {name: invalid-case-must-not-deploy, source: PC1, destination: R1, expected: pass}

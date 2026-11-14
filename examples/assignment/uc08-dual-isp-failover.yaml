@@ -1,0 +1,83 @@
+version: 1
+project: uc08-dual-isp-failover
+
+devices:
+  - {id: R1, type: router, model: "2911"}
+  - {id: R2, type: router, model: "2911"}
+  - {id: R3, type: router, model: "2911"}
+  - {id: ISP1, type: router, model: "2911"}
+  - {id: ISP2, type: router, model: "2911"}
+  - {id: SW-ISP, type: switch, model: 2960-24TT}
+  - {id: PC1, type: pc, model: PC-PT}
+  - {id: PUBLIC1, type: server, model: Server-PT}
+
+links:
+  - {from: PC1:FastEthernet0, to: R1:GigabitEthernet0/0}
+  - {from: R1:GigabitEthernet0/1, to: R2:GigabitEthernet0/0}
+  - {from: R1:GigabitEthernet0/2, to: R3:GigabitEthernet0/0}
+  - {from: R2:GigabitEthernet0/1, to: ISP1:GigabitEthernet0/0}
+  - {from: R3:GigabitEthernet0/1, to: ISP2:GigabitEthernet0/0}
+  - {from: ISP1:GigabitEthernet0/1, to: SW-ISP:FastEthernet0/1}
+  - {from: ISP2:GigabitEthernet0/1, to: SW-ISP:FastEthernet0/2}
+  - {from: PUBLIC1:FastEthernet0, to: SW-ISP:FastEthernet0/3}
+
+ipv4:
+  - {device: R1, port: GigabitEthernet0/0, address: 10.1.0.254/16}
+  - {device: R1, port: GigabitEthernet0/1, address: 10.255.0.1/30}
+  - {device: R1, port: GigabitEthernet0/2, address: 10.255.0.5/30}
+  - {device: R2, port: GigabitEthernet0/0, address: 10.255.0.2/30}
+  - {device: R2, port: GigabitEthernet0/1, address: 198.51.100.1/30}
+  - {device: R3, port: GigabitEthernet0/0, address: 10.255.0.6/30}
+  - {device: R3, port: GigabitEthernet0/1, address: 203.0.113.1/30}
+  - {device: ISP1, port: GigabitEthernet0/0, address: 198.51.100.2/30}
+  - {device: ISP1, port: GigabitEthernet0/1, address: 8.8.8.1/24}
+  - {device: ISP2, port: GigabitEthernet0/0, address: 203.0.113.2/30}
+  - {device: ISP2, port: GigabitEthernet0/1, address: 8.8.8.2/24}
+  - {device: PC1, port: FastEthernet0, address: 10.1.10.10/16, gateway: 10.1.0.254}
+  - {device: PUBLIC1, port: FastEthernet0, address: 8.8.8.8/24, gateway: 8.8.8.2}
+
+routing:
+  static:
+    - {device: R1, network: 0.0.0.0/0, next_hop: 10.255.0.2, interface: GigabitEthernet0/1, admin_distance: 1}
+    - {device: R1, network: 0.0.0.0/0, next_hop: 10.255.0.6, interface: GigabitEthernet0/2, admin_distance: 10}
+  ospf:
+    process_id: 1
+    devices: [R1, R2, R3]
+    settings:
+      - device: R1
+        passive_interfaces: [GigabitEthernet0/0]
+        point_to_point_interfaces: [GigabitEthernet0/1, GigabitEthernet0/2]
+      - device: R2
+        point_to_point_interfaces: [GigabitEthernet0/0]
+      - device: R3
+        point_to_point_interfaces: [GigabitEthernet0/0]
+    networks:
+      - {device: R1, network: 10.1.0.0/16, area: 0}
+      - {device: R1, network: 10.255.0.0/30, area: 0}
+      - {device: R1, network: 10.255.0.4/30, area: 0}
+      - {device: R2, network: 10.255.0.0/30, area: 0}
+      - {device: R3, network: 10.255.0.4/30, area: 0}
+
+link_failures:
+  - {name: primary-uplink-down, device: R1, port: GigabitEthernet0/1}
+
+verification:
+  connectivity:
+    - {name: primary-isp-path, source: PC1, destination: PUBLIC1, expected: pass}
+  route_assertions:
+    - {device: R1, destination: 0.0.0.0/0, protocol: static, next_hop: 10.255.0.2, admin_distance: 1}
+  traceroute_tests:
+    - name: primary-path
+      source: PC1
+      destination: PUBLIC1
+      expected_hops: [10.1.0.254, 10.255.0.2, 8.8.8.8]
+  after_failure:
+    connectivity:
+      - {name: backup-isp-path, source: PC1, destination: PUBLIC1, expected: pass}
+    route_assertions:
+      - {device: R1, destination: 0.0.0.0/0, protocol: static, next_hop: 10.255.0.6, admin_distance: 10}
+    traceroute_tests:
+      - name: backup-path
+        source: PC1
+        destination: PUBLIC1
+        expected_hops: [10.1.0.254, 10.255.0.6, 8.8.8.8]

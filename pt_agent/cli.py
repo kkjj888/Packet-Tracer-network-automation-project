@@ -17,6 +17,9 @@ from .diagnostics import diagnose_host_address
 from .dsl_compiler import (
     CompiledNetwork,
     DslCompileError,
+    RouteAssertionSpec,
+    TracerouteSpec,
+    VerificationSpec,
     compile_network_dsl,
     topology_js,
     topology_devices_js,
@@ -25,6 +28,7 @@ from .dsl_compiler import (
 from .dsl_deployment import (
     DslDeploymentError,
     destination_ip,
+    destination_ipv6,
     evaluate_route_assertion,
     evaluate_traceroute,
     evaluate_verification,
@@ -49,6 +53,7 @@ from .script_backend import (
     acl_state_js,
     associate_wireless_client_js,
     configure_dhcp_client_js,
+    configure_host_ipv6_js,
     configure_host_ip_js,
     configure_acl_js,
     configure_router_ipv4_js,
@@ -60,6 +65,7 @@ from .script_backend import (
     fast_forward_js,
     file_size_js,
     host_ip_state_js,
+    host_ipv6_state_js,
     install_module_js,
     minimal_topology_js,
     new_project_js,
@@ -1717,10 +1723,16 @@ def _run_dsl_verification(
     *,
     label: str,
     ping_timeout: float,
+    specs: tuple[VerificationSpec, ...] | None = None,
 ) -> list[dict[str, object]]:
     results: list[dict[str, object]] = []
-    for index, spec in enumerate(network.verification, start=1):
-        address = destination_ip(network, spec.destination)
+    selected = network.verification if specs is None else specs
+    for index, spec in enumerate(selected, start=1):
+        address = (
+            destination_ipv6(network, spec.destination)
+            if spec.protocol == "ping6"
+            else destination_ip(network, spec.destination)
+        )
         if spec.expected == "pass":
             _run_ping(
                 bridge,
@@ -1750,10 +1762,17 @@ def _run_dsl_advanced_verification(
     *,
     label: str,
     traceroute_timeout: float,
+    route_assertions: tuple[RouteAssertionSpec, ...] | None = None,
+    traceroutes: tuple[TracerouteSpec, ...] | None = None,
 ) -> dict[str, object]:
     route_cache: dict[str, object] = {}
     route_results: list[dict[str, object]] = []
-    for index, spec in enumerate(network.route_assertions, start=1):
+    selected_routes = (
+        network.route_assertions
+        if route_assertions is None
+        else route_assertions
+    )
+    for index, spec in enumerate(selected_routes, start=1):
         if spec.device not in route_cache:
             route_cache[spec.device] = _logged_command(
                 bridge,
@@ -1768,7 +1787,10 @@ def _run_dsl_advanced_verification(
         route_results.append(result.to_dict())
 
     traceroute_results: list[dict[str, object]] = []
-    for index, spec in enumerate(network.traceroutes, start=1):
+    selected_traces = (
+        network.traceroutes if traceroutes is None else traceroutes
+    )
+    for index, spec in enumerate(selected_traces, start=1):
         address = destination_ip(network, spec.destination)
         trace = _run_traceroute(
             bridge,
@@ -2734,6 +2756,23 @@ def command_deploy_dsl(args: argparse.Namespace) -> int:
                     )
                 )
             report["host_addresses"] = host_readbacks
+
+            ipv6_readbacks: list[object] = []
+            for item in network.host_ipv6_addresses:
+                ipv6_readbacks.append(
+                    _logged_command(
+                        bridge,
+                        audit,
+                        f"dsl_host_ipv6_{item.device}",
+                        configure_host_ipv6_js(
+                            item.device,
+                            item.port,
+                            item.address,
+                            item.gateway,
+                        ),
+                    )
+                )
+            report["host_ipv6_addresses"] = ipv6_readbacks
         else:
             report["resume_from_plan"] = int(resume_from_plan)
 
@@ -2918,12 +2957,39 @@ def command_deploy_dsl(args: argparse.Namespace) -> int:
                 "dsl_failure_convergence",
                 rounds=args.convergence_rounds,
             )
+            failure_specs = (
+                network.failure_verification
+                if network.failure_verification
+                else network.verification
+            )
             report["verification_after_failure"] = _run_dsl_verification(
                 bridge,
                 audit,
                 network,
                 label="dsl_verify_after_failure",
                 ping_timeout=args.ping_timeout,
+                specs=failure_specs,
+            )
+            failure_routes = (
+                network.failure_route_assertions
+                if network.failure_route_assertions
+                else network.route_assertions
+            )
+            failure_traces = (
+                network.failure_traceroutes
+                if network.failure_traceroutes
+                else network.traceroutes
+            )
+            report["advanced_verification_after_failure"] = (
+                _run_dsl_advanced_verification(
+                    bridge,
+                    audit,
+                    network,
+                    label="dsl_advanced_after_failure",
+                    traceroute_timeout=args.traceroute_timeout,
+                    route_assertions=failure_routes,
+                    traceroutes=failure_traces,
+                )
             )
 
         saved = _save_and_wait(
@@ -2985,6 +3051,17 @@ def command_deploy_dsl(args: argparse.Namespace) -> int:
                 )
             )
         report["host_addresses_after_reopen"] = reopened_hosts
+        reopened_ipv6_hosts: list[object] = []
+        for item in network.host_ipv6_addresses:
+            reopened_ipv6_hosts.append(
+                _logged_command(
+                    bridge,
+                    audit,
+                    f"dsl_reopen_host_ipv6_{item.device}",
+                    host_ipv6_state_js(item.device, item.port),
+                )
+            )
+        report["host_ipv6_addresses_after_reopen"] = reopened_ipv6_hosts
         reopened_dhcp_clients: list[object] = []
         for item in network.dhcp_clients:
             reopened_dhcp_clients.append(
@@ -3026,6 +3103,10 @@ def command_deploy_dsl(args: argparse.Namespace) -> int:
             for key in ("route_assertions", "traceroutes")
             for item in group.get(key, [])
         )
+        failure_advanced = report.get(
+            "advanced_verification_after_failure",
+            {"route_assertions": [], "traceroutes": []},
+        )
         passed = (
             all(item.get("passed") for item in verification)
             and all(item.get("passed") for item in verification_after)
@@ -3041,6 +3122,11 @@ def command_deploy_dsl(args: argparse.Namespace) -> int:
             and all(
                 item.get("passed")
                 for item in report.get("verification_after_failure", [])
+            )
+            and all(
+                item.get("passed")
+                for key in ("route_assertions", "traceroutes")
+                for item in failure_advanced.get(key, [])
             )
         )
         report["status"] = "passed" if passed else "failed"

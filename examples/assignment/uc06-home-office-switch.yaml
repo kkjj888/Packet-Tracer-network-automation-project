@@ -1,0 +1,19 @@
+version: 1
+project: uc06-home-office-switch
+
+devices:
+  - {id: SW1, type: switch, model: 2960-24TT}
+  - {id: PC1, type: pc, model: PC-PT}
+  - {id: PC2, type: pc, model: PC-PT}
+
+links:
+  - {from: PC1:FastEthernet0, to: SW1:FastEthernet0/1}
+  - {from: PC2:FastEthernet0, to: SW1:FastEthernet0/2}
+
+ipv4:
+  - {device: PC1, port: FastEthernet0, address: 192.168.1.10/24}
+  - {device: PC2, port: FastEthernet0, address: 192.168.1.11/24}
+
+verification:
+  connectivity:
+    - {name: local-switch-connectivity, source: PC1, destination: PC2, expected: pass}

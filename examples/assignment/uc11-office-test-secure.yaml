@@ -1,0 +1,181 @@
+version: 1
+project: uc11-office-test-secure
+
+devices:
+  - {id: R1, type: router, model: "2911"}
+  - {id: ISP1, type: router, model: "2911"}
+  - {id: SW-OFFICE, type: switch, model: 2960-24TT}
+  - {id: SW-TEST, type: switch, model: 2960-24TT}
+  - {id: PUBLIC1, type: server, model: Server-PT}
+  - {id: OF-PC1, type: pc, model: PC-PT}
+  - {id: OF-PC2, type: pc, model: PC-PT}
+  - {id: OF-PC3, type: pc, model: PC-PT}
+  - {id: OF-PC4, type: pc, model: PC-PT}
+  - {id: OF-PC5, type: pc, model: PC-PT}
+  - {id: OF-PC6, type: pc, model: PC-PT}
+  - {id: OF-PC7, type: pc, model: PC-PT}
+  - {id: OF-PC8, type: pc, model: PC-PT}
+  - {id: OF-PC9, type: pc, model: PC-PT}
+  - {id: OF-PC10, type: pc, model: PC-PT}
+  - {id: TEST-PC1, type: pc, model: PC-PT}
+  - {id: TEST-PC2, type: pc, model: PC-PT}
+  - {id: TEST-PC3, type: pc, model: PC-PT}
+  - {id: TEST-PC4, type: pc, model: PC-PT}
+  - {id: TEST-PC5, type: pc, model: PC-PT}
+  - {id: TEST-PC6, type: pc, model: PC-PT}
+  - {id: TEST-PC7, type: pc, model: PC-PT}
+  - {id: TEST-PC8, type: pc, model: PC-PT}
+  - {id: TEST-PC9, type: pc, model: PC-PT}
+  - {id: TEST-PC10, type: pc, model: PC-PT}
+
+links:
+  - {from: OF-PC1:FastEthernet0, to: SW-OFFICE:FastEthernet0/1}
+  - {from: OF-PC2:FastEthernet0, to: SW-OFFICE:FastEthernet0/2}
+  - {from: OF-PC3:FastEthernet0, to: SW-OFFICE:FastEthernet0/3}
+  - {from: OF-PC4:FastEthernet0, to: SW-OFFICE:FastEthernet0/4}
+  - {from: OF-PC5:FastEthernet0, to: SW-OFFICE:FastEthernet0/5}
+  - {from: OF-PC6:FastEthernet0, to: SW-OFFICE:FastEthernet0/6}
+  - {from: OF-PC7:FastEthernet0, to: SW-OFFICE:FastEthernet0/7}
+  - {from: OF-PC8:FastEthernet0, to: SW-OFFICE:FastEthernet0/8}
+  - {from: OF-PC9:FastEthernet0, to: SW-OFFICE:FastEthernet0/9}
+  - {from: OF-PC10:FastEthernet0, to: SW-OFFICE:FastEthernet0/10}
+  - {from: TEST-PC1:FastEthernet0, to: SW-TEST:FastEthernet0/1}
+  - {from: TEST-PC2:FastEthernet0, to: SW-TEST:FastEthernet0/2}
+  - {from: TEST-PC3:FastEthernet0, to: SW-TEST:FastEthernet0/3}
+  - {from: TEST-PC4:FastEthernet0, to: SW-TEST:FastEthernet0/4}
+  - {from: TEST-PC5:FastEthernet0, to: SW-TEST:FastEthernet0/5}
+  - {from: TEST-PC6:FastEthernet0, to: SW-TEST:FastEthernet0/6}
+  - {from: TEST-PC7:FastEthernet0, to: SW-TEST:FastEthernet0/7}
+  - {from: TEST-PC8:FastEthernet0, to: SW-TEST:FastEthernet0/8}
+  - {from: TEST-PC9:FastEthernet0, to: SW-TEST:FastEthernet0/9}
+  - {from: TEST-PC10:FastEthernet0, to: SW-TEST:FastEthernet0/10}
+  - {from: SW-OFFICE:GigabitEthernet0/1, to: R1:GigabitEthernet0/0}
+  - {from: SW-TEST:GigabitEthernet0/1, to: R1:GigabitEthernet0/1}
+  - {from: R1:GigabitEthernet0/2, to: ISP1:GigabitEthernet0/0}
+  - {from: ISP1:GigabitEthernet0/1, to: PUBLIC1:FastEthernet0}
+
+vlans:
+  - {id: 10, name: OFFICE}
+  - {id: 20, name: TEST}
+
+vlan_assignments:
+  - {device: SW-OFFICE, port: FastEthernet0/1, mode: access, vlan: 10}
+  - {device: SW-OFFICE, port: FastEthernet0/2, mode: access, vlan: 10}
+  - {device: SW-OFFICE, port: FastEthernet0/3, mode: access, vlan: 10}
+  - {device: SW-OFFICE, port: FastEthernet0/4, mode: access, vlan: 10}
+  - {device: SW-OFFICE, port: FastEthernet0/5, mode: access, vlan: 10}
+  - {device: SW-OFFICE, port: FastEthernet0/6, mode: access, vlan: 10}
+  - {device: SW-OFFICE, port: FastEthernet0/7, mode: access, vlan: 10}
+  - {device: SW-OFFICE, port: FastEthernet0/8, mode: access, vlan: 10}
+  - {device: SW-OFFICE, port: FastEthernet0/9, mode: access, vlan: 10}
+  - {device: SW-OFFICE, port: FastEthernet0/10, mode: access, vlan: 10}
+  - {device: SW-OFFICE, port: GigabitEthernet0/1, mode: trunk, allowed_vlans: [10]}
+  - {device: SW-TEST, port: FastEthernet0/1, mode: access, vlan: 20}
+  - {device: SW-TEST, port: FastEthernet0/2, mode: access, vlan: 20}
+  - {device: SW-TEST, port: FastEthernet0/3, mode: access, vlan: 20}
+  - {device: SW-TEST, port: FastEthernet0/4, mode: access, vlan: 20}
+  - {device: SW-TEST, port: FastEthernet0/5, mode: access, vlan: 20}
+  - {device: SW-TEST, port: FastEthernet0/6, mode: access, vlan: 20}
+  - {device: SW-TEST, port: FastEthernet0/7, mode: access, vlan: 20}
+  - {device: SW-TEST, port: FastEthernet0/8, mode: access, vlan: 20}
+  - {device: SW-TEST, port: FastEthernet0/9, mode: access, vlan: 20}
+  - {device: SW-TEST, port: FastEthernet0/10, mode: access, vlan: 20}
+  - {device: SW-TEST, port: GigabitEthernet0/1, mode: trunk, allowed_vlans: [20]}
+
+ipv4:
+  - device: R1
+    port: GigabitEthernet0/0.10
+    parent_port: GigabitEthernet0/0
+    dot1q_vlan: 10
+    address: 192.168.10.254/24
+  - device: R1
+    port: GigabitEthernet0/1.20
+    parent_port: GigabitEthernet0/1
+    dot1q_vlan: 20
+    address: 192.168.20.254/24
+  - {device: R1, port: GigabitEthernet0/2, address: 203.0.113.1/30}
+  - {device: ISP1, port: GigabitEthernet0/0, address: 203.0.113.2/30}
+  - {device: ISP1, port: GigabitEthernet0/1, address: 198.51.100.1/24}
+  - {device: OF-PC1, port: FastEthernet0, address: 192.168.10.10/24, gateway: 192.168.10.254}
+  - {device: TEST-PC1, port: FastEthernet0, address: 192.168.20.10/24, gateway: 192.168.20.254}
+  - {device: PUBLIC1, port: FastEthernet0, address: 198.51.100.10/24, gateway: 198.51.100.1}
+
+dhcp:
+  pools:
+    - {name: OFFICE, device: R1, network: 192.168.10.0/24, default_router: 192.168.10.254, excluded: [192.168.10.10, 192.168.10.254]}
+    - {name: TEST, device: R1, network: 192.168.20.0/24, default_router: 192.168.20.254, excluded: [192.168.20.10, 192.168.20.254]}
+
+dhcp_clients:
+  - {device: OF-PC2, port: FastEthernet0}
+  - {device: OF-PC3, port: FastEthernet0}
+  - {device: OF-PC4, port: FastEthernet0}
+  - {device: OF-PC5, port: FastEthernet0}
+  - {device: OF-PC6, port: FastEthernet0}
+  - {device: OF-PC7, port: FastEthernet0}
+  - {device: OF-PC8, port: FastEthernet0}
+  - {device: OF-PC9, port: FastEthernet0}
+  - {device: OF-PC10, port: FastEthernet0}
+  - {device: TEST-PC2, port: FastEthernet0}
+  - {device: TEST-PC3, port: FastEthernet0}
+  - {device: TEST-PC4, port: FastEthernet0}
+  - {device: TEST-PC5, port: FastEthernet0}
+  - {device: TEST-PC6, port: FastEthernet0}
+  - {device: TEST-PC7, port: FastEthernet0}
+  - {device: TEST-PC8, port: FastEthernet0}
+  - {device: TEST-PC9, port: FastEthernet0}
+  - {device: TEST-PC10, port: FastEthernet0}
+
+routing:
+  static:
+    - {device: R1, network: 0.0.0.0/0, next_hop: 203.0.113.2, interface: GigabitEthernet0/2}
+
+nat:
+  pat:
+    - device: R1
+      acl_id: "1"
+      source_network: 192.168.0.0/16
+      inside_interfaces: [GigabitEthernet0/0, GigabitEthernet0/1]
+      outside_interface: GigabitEthernet0/2
+
+acls:
+  - id: "140"
+    kind: extended
+    rules:
+      - action: deny
+        protocol: ip
+        source: {kind: network, address: 192.168.10.0, wildcard: 0.0.0.255}
+        destination: {kind: network, address: 192.168.20.0, wildcard: 0.0.0.255}
+      - action: permit
+        protocol: ip
+        source: {kind: network, address: 192.168.10.0, wildcard: 0.0.0.255}
+        destination: {kind: any}
+      - action: deny
+        protocol: ip
+        source: {kind: any}
+        destination: {kind: any}
+  - id: "150"
+    kind: extended
+    rules:
+      - action: deny
+        protocol: ip
+        source: {kind: network, address: 192.168.20.0, wildcard: 0.0.0.255}
+        destination: {kind: network, address: 192.168.10.0, wildcard: 0.0.0.255}
+      - action: permit
+        protocol: ip
+        source: {kind: network, address: 192.168.20.0, wildcard: 0.0.0.255}
+        destination: {kind: any}
+      - action: deny
+        protocol: ip
+        source: {kind: any}
+        destination: {kind: any}
+
+acl_bindings:
+  - {device: R1, port: GigabitEthernet0/0.10, acl: "140", direction: in}
+  - {device: R1, port: GigabitEthernet0/1.20, acl: "150", direction: in}
+
+verification:
+  connectivity:
+    - {name: office-to-internet, source: OF-PC1, destination: PUBLIC1, expected: pass}
+    - {name: test-to-internet, source: TEST-PC1, destination: PUBLIC1, expected: pass}
+    - {name: office-to-test-denied, source: OF-PC1, destination: TEST-PC1, expected: fail}
+    - {name: test-to-office-denied, source: TEST-PC1, destination: OF-PC1, expected: fail}

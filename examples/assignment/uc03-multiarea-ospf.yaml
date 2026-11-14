@@ -1,0 +1,60 @@
+version: 1
+project: uc03-multiarea-ospf
+
+devices:
+  - {id: R0, type: router, model: "2911"}
+  - {id: R1, type: router, model: "2911"}
+  - {id: R2, type: router, model: "2911"}
+  - {id: PC0, type: pc, model: PC-PT}
+  - {id: PC1, type: pc, model: PC-PT}
+
+links:
+  - {from: PC0:FastEthernet0, to: R0:GigabitEthernet0/0}
+  - {from: R0:GigabitEthernet0/1, to: R1:GigabitEthernet0/0}
+  - {from: R1:GigabitEthernet0/1, to: R2:GigabitEthernet0/1}
+  - {from: R1:GigabitEthernet0/2, to: R2:GigabitEthernet0/2}
+  - {from: PC1:FastEthernet0, to: R2:GigabitEthernet0/0}
+
+ipv4:
+  - {device: R0, port: GigabitEthernet0/0, address: 192.168.0.254/24}
+  - {device: R0, port: GigabitEthernet0/1, address: 10.0.0.1/30}
+  - {device: R1, port: GigabitEthernet0/0, address: 10.0.0.2/30}
+  - {device: R1, port: GigabitEthernet0/1, address: 172.16.0.1/30}
+  - {device: R1, port: GigabitEthernet0/2, address: 172.19.0.1/30}
+  - {device: R2, port: GigabitEthernet0/0, address: 192.168.1.254/24}
+  - {device: R2, port: GigabitEthernet0/1, address: 172.16.0.2/30}
+  - {device: R2, port: GigabitEthernet0/2, address: 172.19.0.2/30}
+  - {device: PC0, port: FastEthernet0, address: 192.168.0.10/24, gateway: 192.168.0.254}
+  - {device: PC1, port: FastEthernet0, address: 192.168.1.10/24, gateway: 192.168.1.254}
+
+routing:
+  ospf:
+    process_id: 1
+    devices: [R0, R1, R2]
+    settings:
+      - device: R0
+        passive_interfaces: [GigabitEthernet0/0]
+        point_to_point_interfaces: [GigabitEthernet0/1]
+      - device: R1
+        point_to_point_interfaces: [GigabitEthernet0/0, GigabitEthernet0/1, GigabitEthernet0/2]
+      - device: R2
+        passive_interfaces: [GigabitEthernet0/0]
+        point_to_point_interfaces: [GigabitEthernet0/1, GigabitEthernet0/2]
+    networks:
+      - {device: R0, network: 192.168.0.0/24, area: 0}
+      - {device: R0, network: 10.0.0.0/30, area: 0}
+      - {device: R1, network: 10.0.0.0/30, area: 0}
+      - {device: R1, network: 172.16.0.0/30, area: 100}
+      - {device: R1, network: 172.19.0.0/30, area: 100}
+      - {device: R2, network: 192.168.1.0/24, area: 100}
+      - {device: R2, network: 172.16.0.0/30, area: 100}
+      - {device: R2, network: 172.19.0.0/30, area: 100}
+
+verification:
+  connectivity:
+    - {name: hq-to-branch, source: PC0, destination: PC1, expected: pass}
+  route_assertions:
+    - {device: R0, destination: 192.168.1.0/24, protocol: ospf, admin_distance: 110}
+    - {device: R2, destination: 192.168.0.0/24, protocol: ospf, admin_distance: 110}
+  device_output_assertions:
+    - {name: r1-ospf-neighbor, device: R1, command: show ip ospf neighbor, expected_contains: [FULL]}

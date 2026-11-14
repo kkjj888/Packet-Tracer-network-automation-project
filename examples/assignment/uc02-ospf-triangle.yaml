@@ -1,0 +1,69 @@
+version: 1
+project: uc02-ospf-triangle
+
+devices:
+  - id: R0
+    type: router
+    model: "2911"
+    modules: [{name: HWIC-2T, slot: "0/0"}]
+  - id: R1
+    type: router
+    model: "2911"
+    modules: [{name: HWIC-2T, slot: "0/0"}]
+  - id: R2
+    type: router
+    model: "2911"
+    modules: [{name: HWIC-2T, slot: "0/0"}]
+  - {id: PC0, type: pc, model: PC-PT}
+  - {id: PC1, type: pc, model: PC-PT}
+
+links:
+  - {from: PC0:FastEthernet0, to: R0:GigabitEthernet0/0}
+  - {from: PC1:FastEthernet0, to: R2:GigabitEthernet0/0}
+  - {from: R0:Serial0/0/0, to: R1:Serial0/0/0, cable: serial}
+  - {from: R1:Serial0/0/1, to: R2:Serial0/0/0, cable: serial}
+  - {from: R0:Serial0/0/1, to: R2:Serial0/0/1, cable: serial}
+
+ipv4:
+  - {device: R0, port: GigabitEthernet0/0, address: 192.168.16.62/26}
+  - {device: R0, port: Serial0/0/0, address: 10.0.0.1/30}
+  - {device: R0, port: Serial0/0/1, address: 30.0.0.1/30}
+  - {device: R1, port: Serial0/0/0, address: 10.0.0.2/30}
+  - {device: R1, port: Serial0/0/1, address: 20.0.0.1/30}
+  - {device: R2, port: GigabitEthernet0/0, address: 192.168.16.190/26}
+  - {device: R2, port: Serial0/0/0, address: 20.0.0.2/30}
+  - {device: R2, port: Serial0/0/1, address: 30.0.0.2/30}
+  - {device: PC0, port: FastEthernet0, address: 192.168.16.10/26, gateway: 192.168.16.62}
+  - {device: PC1, port: FastEthernet0, address: 192.168.16.129/26, gateway: 192.168.16.190}
+
+routing:
+  ospf:
+    process_id: 100
+    devices: [R0, R1, R2]
+    settings:
+      - device: R0
+        passive_interfaces: [GigabitEthernet0/0]
+        point_to_point_interfaces: [Serial0/0/0, Serial0/0/1]
+      - device: R1
+        point_to_point_interfaces: [Serial0/0/0, Serial0/0/1]
+      - device: R2
+        passive_interfaces: [GigabitEthernet0/0]
+        point_to_point_interfaces: [Serial0/0/0, Serial0/0/1]
+    networks:
+      - {device: R0, network: 192.168.16.0/26, area: 0}
+      - {device: R0, network: 10.0.0.0/30, area: 0}
+      - {device: R0, network: 30.0.0.0/30, area: 0}
+      - {device: R1, network: 10.0.0.0/30, area: 0}
+      - {device: R1, network: 20.0.0.0/30, area: 0}
+      - {device: R2, network: 192.168.16.128/26, area: 0}
+      - {device: R2, network: 20.0.0.0/30, area: 0}
+      - {device: R2, network: 30.0.0.0/30, area: 0}
+
+verification:
+  connectivity:
+    - {name: admin-to-research, source: PC0, destination: PC1, expected: pass}
+  route_assertions:
+    - {device: R0, destination: 192.168.16.128/26, protocol: ospf, next_hop: 30.0.0.2, admin_distance: 110}
+    - {device: R2, destination: 192.168.16.0/26, protocol: ospf, next_hop: 30.0.0.1, admin_distance: 110}
+  device_output_assertions:
+    - {name: r0-ospf-neighbor, device: R0, command: show ip ospf neighbor, expected_contains: [FULL]}

@@ -1,0 +1,88 @@
+version: 1
+project: uc07-guest-cashier-policy
+
+devices:
+  - {id: R1, type: router, model: "2911"}
+  - {id: R2, type: router, model: "2911"}
+  - {id: SW1, type: switch, model: 2960-24TT}
+  - {id: GUEST1, type: pc, model: PC-PT}
+  - {id: GUEST2, type: pc, model: PC-PT}
+  - {id: CASH1, type: pc, model: PC-PT}
+  - {id: CASH2, type: pc, model: PC-PT}
+  - {id: PUBLIC1, type: server, model: Server-PT}
+
+links:
+  - {from: GUEST1:FastEthernet0, to: SW1:FastEthernet0/1}
+  - {from: GUEST2:FastEthernet0, to: SW1:FastEthernet0/2}
+  - {from: CASH1:FastEthernet0, to: SW1:FastEthernet0/3}
+  - {from: CASH2:FastEthernet0, to: SW1:FastEthernet0/4}
+  - {from: SW1:GigabitEthernet0/1, to: R1:GigabitEthernet0/0}
+  - {from: R1:GigabitEthernet0/1, to: R2:GigabitEthernet0/0}
+  - {from: R2:GigabitEthernet0/1, to: PUBLIC1:FastEthernet0}
+
+vlans:
+  - {id: 30, name: GUEST}
+  - {id: 40, name: CASHIER}
+
+vlan_assignments:
+  - {device: SW1, port: FastEthernet0/1, mode: access, vlan: 30}
+  - {device: SW1, port: FastEthernet0/2, mode: access, vlan: 30}
+  - {device: SW1, port: FastEthernet0/3, mode: access, vlan: 40}
+  - {device: SW1, port: FastEthernet0/4, mode: access, vlan: 40}
+  - {device: SW1, port: GigabitEthernet0/1, mode: trunk, allowed_vlans: [30, 40]}
+
+ipv4:
+  - device: R1
+    port: GigabitEthernet0/0.30
+    parent_port: GigabitEthernet0/0
+    dot1q_vlan: 30
+    address: 192.168.30.254/24
+  - device: R1
+    port: GigabitEthernet0/0.40
+    parent_port: GigabitEthernet0/0
+    dot1q_vlan: 40
+    address: 192.168.40.254/24
+  - {device: R1, port: GigabitEthernet0/1, address: 203.0.113.1/30}
+  - {device: R2, port: GigabitEthernet0/0, address: 203.0.113.2/30}
+  - {device: R2, port: GigabitEthernet0/1, address: 198.51.100.1/24}
+  - {device: GUEST1, port: FastEthernet0, address: 192.168.30.1/24, gateway: 192.168.30.254}
+  - {device: GUEST2, port: FastEthernet0, address: 192.168.30.2/24, gateway: 192.168.30.254}
+  - {device: CASH1, port: FastEthernet0, address: 192.168.40.1/24, gateway: 192.168.40.254}
+  - {device: CASH2, port: FastEthernet0, address: 192.168.40.2/24, gateway: 192.168.40.254}
+  - {device: PUBLIC1, port: FastEthernet0, address: 198.51.100.10/24, gateway: 198.51.100.1}
+
+routing:
+  static:
+    - {device: R1, network: 0.0.0.0/0, next_hop: 203.0.113.2, interface: GigabitEthernet0/1}
+    - {device: R2, network: 192.168.30.0/24, next_hop: 203.0.113.1, interface: GigabitEthernet0/0}
+    - {device: R2, network: 192.168.40.0/24, next_hop: 203.0.113.1, interface: GigabitEthernet0/0}
+
+acls:
+  - id: "130"
+    kind: extended
+    rules:
+      - action: deny
+        protocol: ip
+        source: {kind: network, address: 192.168.30.0, wildcard: 0.0.0.255}
+        destination: {kind: network, address: 192.168.40.0, wildcard: 0.0.0.255}
+      - action: permit
+        protocol: ip
+        source: {kind: network, address: 192.168.30.0, wildcard: 0.0.0.255}
+        destination: {kind: any}
+      - action: deny
+        protocol: ip
+        source: {kind: any}
+        destination: {kind: any}
+
+acl_bindings:
+  - {device: R1, port: GigabitEthernet0/0.30, acl: "130", direction: in}
+
+verification:
+  connectivity:
+    - {name: guest-to-internet, source: GUEST1, destination: PUBLIC1, expected: pass}
+    - {name: guest-to-cashier-denied, source: GUEST1, destination: CASH1, expected: fail}
+    - {name: cashier-to-internet, source: CASH1, destination: PUBLIC1, expected: pass}
+    - {name: cashier-to-guest-allowed, source: CASH1, destination: GUEST1, expected: pass}
+  route_assertions:
+    - {device: R1, destination: 0.0.0.0/0, protocol: static, next_hop: 203.0.113.2}
+    - {device: R2, destination: 192.168.30.0/24, protocol: static, next_hop: 203.0.113.1}

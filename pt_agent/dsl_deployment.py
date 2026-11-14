@@ -112,6 +112,23 @@ def host_ip_by_device(network: CompiledNetwork) -> dict[str, str]:
     return result
 
 
+def host_ipv6_by_device(network: CompiledNetwork) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for item in network.host_ipv6_addresses:
+        if item.device in result:
+            raise DslDeploymentError(
+                f"host device {item.device} has multiple IPv6 addresses"
+            )
+        try:
+            interface = ipaddress.ip_interface(item.address)
+        except ValueError as exc:
+            raise DslDeploymentError(
+                f"invalid IPv6 host address for {item.device}: {exc}"
+            ) from exc
+        result[item.device] = str(interface.ip)
+    return result
+
+
 def destination_ip(
     network: CompiledNetwork,
     device: str,
@@ -125,12 +142,25 @@ def destination_ip(
         ) from exc
 
 
+def destination_ipv6(
+    network: CompiledNetwork,
+    device: str,
+) -> str:
+    addresses = host_ipv6_by_device(network)
+    try:
+        return addresses[device]
+    except KeyError as exc:
+        raise DslDeploymentError(
+            f"verification destination {device} has no IPv6 address"
+        ) from exc
+
+
 def evaluate_verification(
     spec: VerificationSpec,
     ping: Mapping[str, object],
     destination_address: str,
 ) -> VerificationResult:
-    if spec.protocol != "ping":
+    if spec.protocol not in ("ping", "ping6"):
         raise DslDeploymentError(
             f"unsupported verification protocol {spec.protocol!r}"
         )

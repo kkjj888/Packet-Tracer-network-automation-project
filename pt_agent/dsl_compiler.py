@@ -23,6 +23,13 @@ from .compiler.interface import (
     compile_ipv4_interfaces,
     compile_vlan_subinterfaces,
 )
+from .compiler.ipv6 import (
+    Ipv6GreTunnel,
+    Ipv6Interface,
+    Ipv6StaticRoute,
+    compile_ipv6_config,
+    compile_ipv6_gre_tunnels,
+)
 from .compiler.nat import (
     PatConfig,
     StaticNatConfig,
@@ -178,6 +185,7 @@ class CompiledNetwork:
     devices: tuple[TopologyDevice, ...]
     links: tuple[TopologyLink, ...]
     host_addresses: tuple[HostAddressConfig, ...]
+    host_ipv6_addresses: tuple[HostAddressConfig, ...]
     dhcp_clients: tuple[DhcpClientConfig, ...]
     link_failures: tuple[LinkFailure, ...]
     command_plans: tuple[CommandPlan, ...]
@@ -185,6 +193,9 @@ class CompiledNetwork:
     verification: tuple[VerificationSpec, ...]
     route_assertions: tuple[RouteAssertionSpec, ...]
     traceroutes: tuple[TracerouteSpec, ...]
+    failure_verification: tuple[VerificationSpec, ...]
+    failure_route_assertions: tuple[RouteAssertionSpec, ...]
+    failure_traceroutes: tuple[TracerouteSpec, ...]
     wireless: WirelessConfig | None
     output_assertions: tuple[OutputAssertionSpec, ...]
 
@@ -219,6 +230,15 @@ class CompiledNetwork:
                     "gateway": item.gateway,
                 }
                 for item in self.host_addresses
+            ],
+            "host_ipv6_addresses": [
+                {
+                    "device": item.device,
+                    "port": item.port,
+                    "address": item.address,
+                    "gateway": item.gateway,
+                }
+                for item in self.host_ipv6_addresses
             ],
             "dhcp_clients": [
                 {"device": item.device, "port": item.port}
@@ -280,6 +300,36 @@ class CompiledNetwork:
                 }
                 for item in self.traceroutes
             ],
+            "failure_verification": [
+                {
+                    "name": test.name,
+                    "source": test.source,
+                    "destination": test.destination,
+                    "expected": test.expected,
+                    "protocol": test.protocol,
+                }
+                for test in self.failure_verification
+            ],
+            "failure_route_assertions": [
+                {
+                    "device": item.device,
+                    "destination": item.destination,
+                    "protocol": item.protocol,
+                    "next_hop": item.next_hop,
+                    "interface": item.interface,
+                    "admin_distance": item.admin_distance,
+                }
+                for item in self.failure_route_assertions
+            ],
+            "failure_traceroutes": [
+                {
+                    "name": item.name,
+                    "source": item.source,
+                    "destination": item.destination,
+                    "expected_hops": list(item.expected_hops),
+                }
+                for item in self.failure_traceroutes
+            ],
             "wireless": (
                 {
                     "access_point": self.wireless.access_point,
@@ -319,6 +369,9 @@ def compile_network_dsl(
     device_types = {device.device_id: device.device_type for device in devices}
     links = tuple(_compile_links(document))
     host_addresses = tuple(_compile_host_addresses(document, device_types))
+    host_ipv6_addresses = tuple(
+        _compile_host_ipv6_addresses(document, device_types)
+    )
     router_interfaces = tuple(
         _compile_router_interface_configs(document, device_types)
     )
@@ -329,6 +382,7 @@ def compile_network_dsl(
             *_compile_switch_plans(document, device_types),
             *_compile_platform_plans(document, device_types),
             *_compile_router_plans(document, device_types),
+            *_compile_ipv6_plans(document, device_types),
             *_compile_dhcp_plans(document, device_types),
             *_compile_nat_plans(document, device_types),
             *_compile_static_nat_plans(document, device_types),
@@ -341,11 +395,23 @@ def compile_network_dsl(
             *_compile_management_plans(document, device_types),
         ]
     )
+    verification = document.get("verification")
+    after_failure = (
+        verification.get("after_failure")
+        if isinstance(verification, dict)
+        else None
+    )
+    failure_document = (
+        {"verification": after_failure}
+        if isinstance(after_failure, dict)
+        else {}
+    )
     return CompiledNetwork(
         project=str(document["project"]),
         devices=devices,
         links=links,
         host_addresses=host_addresses,
+        host_ipv6_addresses=host_ipv6_addresses,
         dhcp_clients=dhcp_clients,
         link_failures=link_failures,
         command_plans=plans,
@@ -353,6 +419,13 @@ def compile_network_dsl(
         verification=tuple(_compile_verification(document)),
         route_assertions=tuple(_compile_route_assertions(document)),
         traceroutes=tuple(_compile_traceroutes(document)),
+        failure_verification=tuple(_compile_verification(failure_document)),
+        failure_route_assertions=tuple(
+            _compile_route_assertions(failure_document)
+        ),
+        failure_traceroutes=tuple(
+            _compile_traceroutes(failure_document)
+        ),
         wireless=_compile_wireless(document, device_types),
         output_assertions=tuple(_compile_output_assertions(document)),
     )
@@ -410,6 +483,28 @@ def _compile_host_addresses(
 ) -> list[HostAddressConfig]:
     result: list[HostAddressConfig] = []
     for item in _as_list(document.get("ipv4")):
+        if not isinstance(item, dict):
+            continue
+        device = str(item["device"])
+        if device_types.get(device) not in _HOST_TYPES:
+            continue
+        result.append(
+            HostAddressConfig(
+                device,
+                str(item["port"]),
+                str(item["address"]),
+                str(item["gateway"]) if item.get("gateway") else None,
+            )
+        )
+    return result
+
+
+def _compile_host_ipv6_addresses(
+    document: Mapping[str, object],
+    device_types: Mapping[str, str],
+) -> list[HostAddressConfig]:
+    result: list[HostAddressConfig] = []
+    for item in _as_list(document.get("ipv6")):
         if not isinstance(item, dict):
             continue
         device = str(item["device"])
@@ -701,6 +796,80 @@ def _compile_router_plans(
     plans.extend(
         compile_vlan_subinterfaces(device, items)
         for device, items in subinterfaces.items()
+    )
+    return plans
+
+
+def _compile_ipv6_plans(
+    document: Mapping[str, object],
+    device_types: Mapping[str, str],
+) -> list[CommandPlan]:
+    interfaces: dict[str, list[Ipv6Interface]] = {}
+    for item in _as_list(document.get("ipv6")):
+        if not isinstance(item, dict):
+            continue
+        device = str(item["device"])
+        if device_types.get(device) != "router":
+            continue
+        interfaces.setdefault(device, []).append(
+            Ipv6Interface(str(item["port"]), str(item["address"]))
+        )
+
+    routes: dict[str, list[Ipv6StaticRoute]] = {}
+    routing = document.get("routing")
+    if isinstance(routing, dict):
+        for item in _as_list(routing.get("ipv6_static")):
+            if not isinstance(item, dict):
+                continue
+            device = str(item["device"])
+            if device_types.get(device) != "router":
+                raise DslCompileError(
+                    f"IPv6 static route device {device} is not a router"
+                )
+            routes.setdefault(device, []).append(
+                Ipv6StaticRoute(
+                    str(item["destination"]),
+                    (
+                        str(item["next_hop"])
+                        if item.get("next_hop")
+                        else None
+                    ),
+                    (
+                        str(item["interface"])
+                        if item.get("interface")
+                        else None
+                    ),
+                )
+            )
+
+    tunnels: dict[str, list[Ipv6GreTunnel]] = {}
+    for item in _as_list(document.get("ipv6_tunnels")):
+        if not isinstance(item, dict):
+            continue
+        device = str(item["device"])
+        if device_types.get(device) != "router":
+            raise DslCompileError(
+                f"IPv6 GRE device {device} is not a router"
+            )
+        tunnels.setdefault(device, []).append(
+            Ipv6GreTunnel(
+                str(item["interface"]),
+                str(item["address"]),
+                str(item["source"]),
+                str(item["destination"]),
+            )
+        )
+    plans: list[CommandPlan] = [
+        compile_ipv6_gre_tunnels(device, items)
+        for device, items in tunnels.items()
+    ]
+    plans.extend(
+        compile_ipv6_config(
+            device,
+            interfaces.get(device, []),
+            routes.get(device, []),
+        )
+        for device in sorted(set(interfaces) | set(routes))
     )
     return plans
 
@@ -1147,7 +1316,7 @@ def _compile_verification(
     verification = document.get("verification")
     if not isinstance(verification, dict):
         return []
-    return [
+    result = [
         VerificationSpec(
             str(item["name"]),
             str(item["source"]),
@@ -1158,6 +1327,27 @@ def _compile_verification(
         for item in _as_list(verification.get("connectivity"))
         if isinstance(item, dict)
     ]
+    for matrix in _as_list(verification.get("connectivity_matrix")):
+        if not isinstance(matrix, dict):
+            continue
+        name = str(matrix["name"])
+        devices = [str(value) for value in _as_list(matrix["devices"])]
+        protocol = str(matrix.get("protocol", "ping"))
+        expected = str(matrix["expected"])
+        for source in devices:
+            for target in devices:
+                if source == target:
+                    continue
+                result.append(
+                    VerificationSpec(
+                        f"{name}__{source}__to__{target}",
+                        source,
+                        target,
+                        expected,
+                        protocol,
+                    )
+                )
+    return result
 
 
 def _compile_route_assertions(

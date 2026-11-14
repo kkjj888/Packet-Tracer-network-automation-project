@@ -1,0 +1,56 @@
+version: 1
+project: uc10-ipv6-over-ipv4
+
+devices:
+  - {id: R1, type: router, model: "2911"}
+  - {id: R2, type: router, model: "2911"}
+  - {id: R3, type: router, model: "2911"}
+  - {id: PC1, type: pc, model: PC-PT}
+  - {id: PC2, type: pc, model: PC-PT}
+
+links:
+  - {from: PC1:FastEthernet0, to: R1:GigabitEthernet0/0}
+  - {from: PC2:FastEthernet0, to: R2:GigabitEthernet0/0}
+  - {from: R1:GigabitEthernet0/1, to: R3:GigabitEthernet0/0}
+  - {from: R3:GigabitEthernet0/1, to: R2:GigabitEthernet0/1}
+
+ipv4:
+  - {device: R1, port: GigabitEthernet0/1, address: 10.0.0.1/30}
+  - {device: R3, port: GigabitEthernet0/0, address: 10.0.0.2/30}
+  - {device: R3, port: GigabitEthernet0/1, address: 10.0.0.5/30}
+  - {device: R2, port: GigabitEthernet0/1, address: 10.0.0.6/30}
+
+ipv6:
+  - {device: R1, port: GigabitEthernet0/0, address: "2001::1/64"}
+  - {device: R2, port: GigabitEthernet0/0, address: "2002::1/64"}
+  - {device: PC1, port: FastEthernet0, address: "2001::10/64", gateway: "2001::1"}
+  - {device: PC2, port: FastEthernet0, address: "2002::10/64", gateway: "2002::1"}
+
+ipv6_tunnels:
+  - device: R1
+    interface: Tunnel0
+    address: "2003::1/64"
+    source: GigabitEthernet0/1
+    destination: 10.0.0.6
+  - device: R2
+    interface: Tunnel0
+    address: "2003::2/64"
+    source: GigabitEthernet0/1
+    destination: 10.0.0.1
+
+routing:
+  static:
+    - {device: R1, network: 10.0.0.4/30, next_hop: 10.0.0.2, interface: GigabitEthernet0/1}
+    - {device: R2, network: 10.0.0.0/30, next_hop: 10.0.0.5, interface: GigabitEthernet0/1}
+  ipv6_static:
+    - {device: R1, destination: "2002::/64", interface: Tunnel0}
+    - {device: R2, destination: "2001::/64", interface: Tunnel0}
+
+verification:
+  connectivity:
+    - {name: ipv6-sites-over-ipv4-gre, source: PC1, destination: PC2, expected: pass, protocol: ping6}
+  route_assertions:
+    - {device: R1, destination: 10.0.0.4/30, protocol: static, next_hop: 10.0.0.2}
+    - {device: R2, destination: 10.0.0.0/30, protocol: static, next_hop: 10.0.0.5}
+  device_output_assertions:
+    - {name: ipv6-gre-up, device: R1, command: show interfaces tunnel 0, expected_contains: [Tunnel0 is up, line protocol is up]}

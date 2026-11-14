@@ -142,6 +142,11 @@ class _SemanticChecker:
             for item in _as_list(document.get("ipv4"))
             if isinstance(item, dict)
         ]
+        self.ipv6 = [
+            item
+            for item in _as_list(document.get("ipv6"))
+            if isinstance(item, dict)
+        ]
         self.svis = [
             item
             for item in _as_list(document.get("svis"))
@@ -155,8 +160,10 @@ class _SemanticChecker:
 
     def run(self) -> list[ValidationIssue]:
         self._check_devices()
+        self._check_addressing_constraint()
         self._check_links()
         self._check_ipv4()
+        self._check_ipv6()
         self._check_vlans()
         self._check_dhcp()
         self._check_nat()
@@ -191,6 +198,48 @@ class _SemanticChecker:
                     f"device id {device_id!r} is duplicated",
                 )
             seen.add(device_id)
+
+    def _check_addressing_constraint(self) -> None:
+        constraint = self.document.get("addressing_constraint")
+        if not isinstance(constraint, dict):
+            return
+        try:
+            parent = ipaddress.ip_network(
+                str(constraint.get("parent", "")),
+                strict=True,
+            )
+        except ValueError as exc:
+            self.error(
+                "INVALID_ADDRESS_CONSTRAINT",
+                "addressing_constraint.parent",
+                str(exc),
+            )
+            return
+        children: list[ipaddress.IPv4Network] = []
+        for index, value in enumerate(_as_list(constraint.get("child_networks"))):
+            try:
+                child = ipaddress.ip_network(str(value), strict=True)
+            except ValueError as exc:
+                self.error(
+                    "INVALID_ADDRESS_CONSTRAINT",
+                    f"addressing_constraint.child_networks[{index}]",
+                    str(exc),
+                )
+                continue
+            if not child.subnet_of(parent):
+                self.error(
+                    "CHILD_NETWORK_OUTSIDE_PARENT",
+                    f"addressing_constraint.child_networks[{index}]",
+                    f"{child} is not contained in parent {parent}",
+                )
+            for previous in children:
+                if child.overlaps(previous):
+                    self.error(
+                        "CHILD_NETWORKS_OVERLAP",
+                        f"addressing_constraint.child_networks[{index}]",
+                        f"{child} overlaps {previous}",
+                    )
+            children.append(child)
 
     def _check_links(self) -> None:
         used_ports: dict[tuple[str, str], str] = {}
@@ -426,6 +475,121 @@ class _SemanticChecker:
                             f"VLAN {allowed} is not defined",
                         )
 
+    def _check_ipv6(self) -> None:
+        addresses: dict[str, str] = {}
+        ports: set[tuple[str, str]] = set()
+        for index, item in enumerate(self.ipv6):
+            path = f"ipv6[{index}]"
+            device_id = str(item.get("device", ""))
+            port = str(item.get("port", ""))
+            if device_id not in self.devices:
+                self.error(
+                    "UNKNOWN_DEVICE",
+                    f"{path}.device",
+                    f"unknown device {device_id!r}",
+                )
+            key = (device_id, port)
+            if key in ports:
+                self.error(
+                    "DUPLICATE_IPV6_INTERFACE",
+                    path,
+                    f"{device_id}:{port} has more than one IPv6 address",
+                )
+            ports.add(key)
+            try:
+                interface = ipaddress.ip_interface(str(item.get("address", "")))
+            except ValueError as exc:
+                self.error("INVALID_IPV6_ADDRESS", f"{path}.address", str(exc))
+                continue
+            if interface.version != 6:
+                self.error(
+                    "INVALID_IPV6_ADDRESS",
+                    f"{path}.address",
+                    "IPv6 entry requires an IPv6 address",
+                )
+                continue
+            previous = addresses.get(str(interface.ip))
+            if previous is not None:
+                self.error(
+                    "DUPLICATE_IPV6_ADDRESS",
+                    f"{path}.address",
+                    f"{interface.ip} is also used at {previous}",
+                )
+            addresses[str(interface.ip)] = f"{path}.address"
+            gateway = item.get("gateway")
+            if gateway is None:
+                continue
+            try:
+                gateway_ip = ipaddress.ip_address(str(gateway))
+            except ValueError as exc:
+                self.error("INVALID_IPV6_GATEWAY", f"{path}.gateway", str(exc))
+                continue
+            if gateway_ip.version != 6 or gateway_ip not in interface.network:
+                self.error(
+                    "IPV6_GATEWAY_OUTSIDE_SUBNET",
+                    f"{path}.gateway",
+                    f"{gateway_ip} is not inside {interface.network}",
+                )
+
+        routing = self.document.get("routing")
+        if isinstance(routing, dict):
+            for index, item in enumerate(_as_list(routing.get("ipv6_static"))):
+                if not isinstance(item, dict):
+                    continue
+                path = f"routing.ipv6_static[{index}]"
+                self._router_device(item.get("device"), f"{path}.device")
+                try:
+                    network = ipaddress.ip_network(
+                        str(item.get("destination", "")),
+                        strict=True,
+                    )
+                except ValueError as exc:
+                    self.error("INVALID_IPV6_ROUTE", f"{path}.destination", str(exc))
+                    continue
+                if network.version != 6:
+                    self.error(
+                        "INVALID_IPV6_ROUTE",
+                        f"{path}.destination",
+                        "IPv6 static route requires an IPv6 prefix",
+                    )
+                next_hop = item.get("next_hop")
+                if next_hop is not None:
+                    try:
+                        address = ipaddress.ip_address(str(next_hop))
+                    except ValueError as exc:
+                        self.error(
+                            "INVALID_IPV6_ROUTE",
+                            f"{path}.next_hop",
+                            str(exc),
+                        )
+                    else:
+                        if address.version != 6:
+                            self.error(
+                                "INVALID_IPV6_ROUTE",
+                                f"{path}.next_hop",
+                                "IPv6 next hop must be IPv6",
+                            )
+
+        for index, item in enumerate(_as_list(self.document.get("ipv6_tunnels"))):
+            if not isinstance(item, dict):
+                continue
+            path = f"ipv6_tunnels[{index}]"
+            self._router_device(item.get("device"), f"{path}.device")
+            try:
+                address = ipaddress.ip_interface(str(item.get("address", "")))
+                destination = ipaddress.ip_address(
+                    str(item.get("destination", ""))
+                )
+            except ValueError as exc:
+                self.error("INVALID_IPV6_TUNNEL", path, str(exc))
+                continue
+            if address.version != 6 or destination.version != 4:
+                self.error(
+                    "INVALID_IPV6_TUNNEL",
+                    path,
+                    "tunnel address must be IPv6 and destination IPv4",
+                )
+
     def _vlan_is_defined(self, vlan_id: int) -> bool:
         return vlan_id in self.vlans or vlan_id in DEFAULT_VLAN_IDS
 
@@ -514,11 +678,7 @@ class _SemanticChecker:
                     values = [item.get(field)]
                 for value in values:
                     port = str(value or "")
-                    if not any(
-                        str(entry.get("device")) == device_id
-                        and str(entry.get("port")) == port
-                        for entry in self.ipv4
-                    ):
+                    if not self._port_has_ipv4(device_id, port):
                         self.error(
                             "NAT_INTERFACE_NOT_CONFIGURED",
                             f"{path}.{field}",
@@ -549,11 +709,7 @@ class _SemanticChecker:
                     values = [item.get(field)]
                 for value in values:
                     port = str(value or "")
-                    if not any(
-                        str(entry.get("device")) == device_id
-                        and str(entry.get("port")) == port
-                        for entry in self.ipv4
-                    ):
+                    if not self._port_has_ipv4(device_id, port):
                         self.error(
                             "NAT_INTERFACE_NOT_CONFIGURED",
                             f"{path}.{field}",
@@ -671,6 +827,16 @@ class _SemanticChecker:
             if next_hop in interface.network:
                 return True
         return False
+
+    def _port_has_ipv4(self, device_id: str, port: str) -> bool:
+        return any(
+            str(item.get("device")) == device_id
+            and (
+                str(item.get("port")) == port
+                or str(item.get("port")).startswith(f"{port}.")
+            )
+            for item in self.ipv4
+        )
 
     def _check_rip(self) -> None:
         routing = self.document.get("routing")
@@ -1122,6 +1288,26 @@ class _SemanticChecker:
                     path,
                     "source and destination must be different devices",
                 )
+        for index, matrix in enumerate(
+            _as_list(verification.get("connectivity_matrix"))
+        ):
+            if not isinstance(matrix, dict):
+                continue
+            path = f"verification.connectivity_matrix[{index}]"
+            devices = [str(value) for value in _as_list(matrix.get("devices"))]
+            for device_index, device_id in enumerate(devices):
+                if device_id not in self.devices:
+                    self.error(
+                        "UNKNOWN_DEVICE",
+                        f"{path}.devices[{device_index}]",
+                        f"unknown device {device_id!r}",
+                    )
+            if len(devices) != len(set(devices)):
+                self.error(
+                    "DUPLICATE_MATRIX_DEVICE",
+                    f"{path}.devices",
+                    "connectivity matrix devices must be unique",
+                )
         for index, item in enumerate(
             _as_list(verification.get("route_assertions"))
         ):
@@ -1260,6 +1446,14 @@ _ALLOWED_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^encapsulation dot1Q \d{1,4}$", re.I),
     re.compile(r"^ip address (?:\d{1,3}\.){3}\d{1,3} (?:\d{1,3}\.){3}\d{1,3}$", re.I),
     re.compile(r"^ip routing$", re.I),
+    re.compile(r"^ipv6 unicast-routing$", re.I),
+    re.compile(r"^ipv6 address [0-9A-Fa-f:]+/\d{1,3}$", re.I),
+    re.compile(
+        r"^ipv6 route [0-9A-Fa-f:]+/\d{1,3} "
+        r"(?:[A-Za-z0-9/._-]+|[0-9A-Fa-f:]+)$",
+        re.I,
+    ),
+    re.compile(r"^tunnel mode gre ip$", re.I),
     re.compile(r"^no switchport$", re.I),
     re.compile(r"^ip ospf network point-to-point$", re.I),
     re.compile(

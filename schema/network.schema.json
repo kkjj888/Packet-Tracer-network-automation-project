@@ -14,6 +14,24 @@
       "minLength": 1,
       "maxLength": 80
     },
+    "addressing_constraint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["parent", "child_networks"],
+      "properties": {
+        "parent": {
+          "$ref": "#/$defs/ipv4_cidr"
+        },
+        "child_networks": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/ipv4_cidr"
+          }
+        }
+      }
+    },
     "devices": {
       "type": "array",
       "minItems": 1,
@@ -31,6 +49,18 @@
       "type": "array",
       "items": {
         "$ref": "#/$defs/ipv4_interface"
+      }
+    },
+    "ipv6": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ipv6_interface"
+      }
+    },
+    "ipv6_tunnels": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ipv6_gre_tunnel"
       }
     },
     "vlans": {
@@ -93,6 +123,12 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/gre_tunnel"
+          }
+        },
+        "ipv6_static": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ipv6_static_route"
           }
         }
       }
@@ -222,6 +258,12 @@
             "$ref": "#/$defs/connectivity_test"
           }
         },
+        "connectivity_matrix": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/connectivity_matrix"
+          }
+        },
         "route_assertions": {
           "type": "array",
           "items": {
@@ -238,6 +280,36 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/output_assertion"
+          }
+        },
+        "after_failure": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "connectivity": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/connectivity_test"
+              }
+            },
+            "connectivity_matrix": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/connectivity_matrix"
+              }
+            },
+            "route_assertions": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/route_assertion"
+              }
+            },
+            "traceroute_tests": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/traceroute_test"
+              }
+            }
           }
         }
       }
@@ -259,6 +331,15 @@
     "ipv4_cidr": {
       "type": "string",
       "pattern": "^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}/[0-9]{1,2}$"
+    },
+    "ipv6": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 45
+    },
+    "ipv6_cidr": {
+      "type": "string",
+      "pattern": "^[0-9A-Fa-f:]+/[0-9]{1,3}$"
     },
     "device": {
       "type": "object",
@@ -385,6 +466,26 @@
           }
         }
       ]
+    },
+    "ipv6_interface": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["device", "port", "address"],
+      "properties": {
+        "device": {
+          "$ref": "#/$defs/identifier"
+        },
+        "port": {
+          "type": "string",
+          "minLength": 1
+        },
+        "address": {
+          "$ref": "#/$defs/ipv6_cidr"
+        },
+        "gateway": {
+          "$ref": "#/$defs/ipv6"
+        }
+      }
     },
     "vlan": {
       "type": "object",
@@ -777,6 +878,58 @@
         }
       }
     },
+    "ipv6_gre_tunnel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["device", "interface", "address", "source", "destination"],
+      "properties": {
+        "device": {
+          "$ref": "#/$defs/identifier"
+        },
+        "interface": {
+          "type": "string",
+          "pattern": "^Tunnel[0-9]+$"
+        },
+        "address": {
+          "$ref": "#/$defs/ipv6_cidr"
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "destination": {
+          "$ref": "#/$defs/ipv4"
+        }
+      }
+    },
+    "ipv6_static_route": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["device", "destination"],
+      "properties": {
+        "device": {
+          "$ref": "#/$defs/identifier"
+        },
+        "destination": {
+          "$ref": "#/$defs/ipv6_cidr"
+        },
+        "next_hop": {
+          "$ref": "#/$defs/ipv6"
+        },
+        "interface": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "anyOf": [
+        {
+          "required": ["next_hop"]
+        },
+        {
+          "required": ["interface"]
+        }
+      ]
+    },
     "acl_rule": {
       "type": "object",
       "additionalProperties": false,
@@ -1008,7 +1161,32 @@
           "enum": ["pass", "fail"]
         },
         "protocol": {
-          "const": "ping"
+          "enum": ["ping", "ping6"]
+        }
+      }
+    },
+    "connectivity_matrix": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "devices", "expected"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "devices": {
+          "type": "array",
+          "minItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/identifier"
+          }
+        },
+        "expected": {
+          "enum": ["pass", "fail"]
+        },
+        "protocol": {
+          "enum": ["ping", "ping6"]
         }
       }
     },

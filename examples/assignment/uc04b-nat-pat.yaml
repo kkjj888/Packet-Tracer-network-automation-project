@@ -1,0 +1,47 @@
+version: 1
+project: uc04b-nat-pat
+
+devices:
+  - {id: R0, type: router, model: "2911"}
+  - {id: R1, type: router, model: "2911"}
+  - {id: SW1, type: switch, model: 2960-24TT}
+  - {id: PC0, type: pc, model: PC-PT}
+  - {id: PC1, type: pc, model: PC-PT}
+  - {id: Server0, type: server, model: Server-PT}
+
+links:
+  - {from: PC0:FastEthernet0, to: SW1:FastEthernet0/1}
+  - {from: PC1:FastEthernet0, to: SW1:FastEthernet0/2}
+  - {from: SW1:GigabitEthernet0/1, to: R0:GigabitEthernet0/0}
+  - {from: R0:GigabitEthernet0/1, to: R1:GigabitEthernet0/0}
+  - {from: R1:GigabitEthernet0/1, to: Server0:FastEthernet0}
+
+ipv4:
+  - {device: R0, port: GigabitEthernet0/0, address: 192.168.0.254/24}
+  - {device: R0, port: GigabitEthernet0/1, address: 218.75.230.253/30}
+  - {device: R1, port: GigabitEthernet0/0, address: 218.75.230.254/30}
+  - {device: R1, port: GigabitEthernet0/1, address: 218.75.230.126/25}
+  - {device: PC0, port: FastEthernet0, address: 192.168.0.1/24, gateway: 192.168.0.254}
+  - {device: PC1, port: FastEthernet0, address: 192.168.0.2/24, gateway: 192.168.0.254}
+  - {device: Server0, port: FastEthernet0, address: 218.75.230.1/25, gateway: 218.75.230.126}
+
+routing:
+  static:
+    - {device: R0, network: 0.0.0.0/0, next_hop: 218.75.230.254, interface: GigabitEthernet0/1}
+
+nat:
+  pat:
+    - device: R0
+      acl_id: "1"
+      source_network: 192.168.0.0/24
+      inside_interfaces: [GigabitEthernet0/0]
+      outside_interface: GigabitEthernet0/1
+
+verification:
+  connectivity:
+    - {name: pc0-after-pat, source: PC0, destination: Server0, expected: pass}
+    - {name: pc1-after-pat, source: PC1, destination: Server0, expected: pass}
+  route_assertions:
+    - {device: R0, destination: 0.0.0.0/0, protocol: static, next_hop: 218.75.230.254, admin_distance: 1}
+  device_output_assertions:
+    - {name: pat-overload-present, device: R0, command: show running-config | include ip nat inside source list, expected_contains: [192.168.0.0, overload]}

@@ -1,0 +1,51 @@
+version: 1
+project: uc05b-multilayer-svi
+
+devices:
+  - {id: CORE1, type: multilayer_switch, model: 3560-24PS}
+  - {id: PC1, type: pc, model: PC-PT}
+  - {id: PC2, type: pc, model: PC-PT}
+  - {id: PC3, type: pc, model: PC-PT}
+  - {id: PC4, type: pc, model: PC-PT}
+  - {id: PC5, type: pc, model: PC-PT}
+  - {id: PC6, type: pc, model: PC-PT}
+
+links:
+  - {from: PC1:FastEthernet0, to: CORE1:FastEthernet0/1}
+  - {from: PC2:FastEthernet0, to: CORE1:FastEthernet0/2}
+  - {from: PC3:FastEthernet0, to: CORE1:FastEthernet0/3}
+  - {from: PC4:FastEthernet0, to: CORE1:FastEthernet0/4}
+  - {from: PC5:FastEthernet0, to: CORE1:FastEthernet0/5}
+  - {from: PC6:FastEthernet0, to: CORE1:FastEthernet0/6}
+
+switch_routing: [CORE1]
+
+vlans:
+  - {id: 10, name: DEPT10}
+  - {id: 20, name: DEPT20}
+
+svis:
+  - {device: CORE1, vlan: 10, address: 192.168.1.254/24}
+  - {device: CORE1, vlan: 20, address: 192.168.2.254/24}
+
+vlan_assignments:
+  - {device: CORE1, port: FastEthernet0/1, mode: access, vlan: 10}
+  - {device: CORE1, port: FastEthernet0/2, mode: access, vlan: 10}
+  - {device: CORE1, port: FastEthernet0/3, mode: access, vlan: 10}
+  - {device: CORE1, port: FastEthernet0/4, mode: access, vlan: 20}
+  - {device: CORE1, port: FastEthernet0/5, mode: access, vlan: 20}
+  - {device: CORE1, port: FastEthernet0/6, mode: access, vlan: 20}
+
+ipv4:
+  - {device: PC1, port: FastEthernet0, address: 192.168.1.1/24, gateway: 192.168.1.254}
+  - {device: PC2, port: FastEthernet0, address: 192.168.1.2/24, gateway: 192.168.1.254}
+  - {device: PC3, port: FastEthernet0, address: 192.168.1.3/24, gateway: 192.168.1.254}
+  - {device: PC4, port: FastEthernet0, address: 192.168.2.1/24, gateway: 192.168.2.254}
+  - {device: PC5, port: FastEthernet0, address: 192.168.2.2/24, gateway: 192.168.2.254}
+  - {device: PC6, port: FastEthernet0, address: 192.168.2.3/24, gateway: 192.168.2.254}
+
+verification:
+  connectivity_matrix:
+    - name: all-six-pcs
+      devices: [PC1, PC2, PC3, PC4, PC5, PC6]
+      expected: pass
