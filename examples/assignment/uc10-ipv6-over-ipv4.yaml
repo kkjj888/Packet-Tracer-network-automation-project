@@ -43,8 +43,8 @@ routing:
     - {device: R1, network: 10.0.0.4/30, next_hop: 10.0.0.2, interface: GigabitEthernet0/1}
     - {device: R2, network: 10.0.0.0/30, next_hop: 10.0.0.5, interface: GigabitEthernet0/1}
   ipv6_static:
-    - {device: R1, destination: "2002::/64", interface: Tunnel0}
-    - {device: R2, destination: "2001::/64", interface: Tunnel0}
+    - {device: R1, destination: "2002::/64", next_hop: "2003::2"}
+    - {device: R2, destination: "2001::/64", next_hop: "2003::1"}
 
 verification:
   connectivity:

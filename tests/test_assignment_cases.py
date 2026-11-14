@@ -52,6 +52,15 @@ class AssignmentCaseTests(unittest.TestCase):
             any(plan.module == "ipv6-gre" for plan in network.command_plans)
         )
         self.assertEqual(network.verification[0].protocol, "ping6")
+        modules = [plan.module for plan in network.command_plans]
+        self.assertLess(
+            modules.index("static-routing"),
+            modules.index("ipv6-gre"),
+        )
+        self.assertLess(
+            modules.index("ipv6-gre"),
+            modules.index("ipv6"),
+        )
 
     def test_uc12_is_rejected_as_impossible_allocation(self) -> None:
         result = NetworkValidator().validate(
