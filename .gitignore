@@ -4,4 +4,5 @@
 /trash/
 __pycache__/
 *.pyc
+*.egg-info/
 

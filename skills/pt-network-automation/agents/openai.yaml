@@ -1,0 +1,3 @@
+interface:
+  display_name: "Packet Tracer Automation"
+  short_description: "Deploy and verify Packet Tracer networks"
