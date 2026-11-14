@@ -61,6 +61,16 @@ acls:
   - id: "130"
     kind: extended
     rules:
+      - action: permit
+        protocol: tcp
+        source: {kind: network, address: 192.168.30.0, wildcard: 0.0.0.255}
+        destination: {kind: network, address: 192.168.40.0, wildcard: 0.0.0.255}
+        established: true
+      - action: permit
+        protocol: icmp
+        source: {kind: network, address: 192.168.30.0, wildcard: 0.0.0.255}
+        destination: {kind: network, address: 192.168.40.0, wildcard: 0.0.0.255}
+        icmp_type: echo-reply
       - action: deny
         protocol: ip
         source: {kind: network, address: 192.168.30.0, wildcard: 0.0.0.255}
