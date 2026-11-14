@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "packet-tracer-agent-cli"
+version = "0.2.0"
+description = "Deterministic Packet Tracer network automation backend"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "PyYAML==6.0.3",
+  "jsonschema==4.26.0",
+]
+
+[project.scripts]
+pt-agent = "pt_agent.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pt_agent*"]
+
+[tool.setuptools]
+include-package-data = true
