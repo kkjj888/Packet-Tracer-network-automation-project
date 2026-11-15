@@ -12,7 +12,6 @@ import time
 import uuid
 from pathlib import Path
 
-from .application import CompilationService, NetworkValidationService
 from .audit import JsonlAuditLogger
 from .diagnostics import diagnose_host_address
 from .dsl_compiler import (
@@ -34,7 +33,6 @@ from .dsl_deployment import (
     evaluate_traceroute,
     evaluate_verification,
 )
-from .jobs import JobManager, JobOptions
 from .config_suite import (
     acl_apply_commands,
     acl_router_config_commands,
@@ -103,27 +101,6 @@ def _json_print(payload: object) -> None:
     print(json.dumps(payload, indent=2, ensure_ascii=False))
 
 
-def _jobs_root(args: argparse.Namespace) -> Path:
-    configured = getattr(args, "data_dir", None)
-    return (
-        Path(configured).expanduser().resolve()
-        if configured
-        else (PROJECT_ROOT / "artifacts" / "jobs").resolve()
-    )
-
-
-def _job_manager(
-    args: argparse.Namespace,
-    *,
-    recover: bool = False,
-) -> JobManager:
-    return JobManager(
-        workspace_root=PROJECT_ROOT,
-        data_root=_jobs_root(args),
-        recover=recover,
-    )
-
-
 def _dhcp_leases_are_valid(
     leases: object,
     network_prefixes: tuple[str, ...],
@@ -154,6 +131,24 @@ def _pt_runtime(args: argparse.Namespace) -> WindowsPacketTracerRuntime:
 
 def command_doctor(args: argparse.Namespace) -> int:
     payload = _pt_runtime(args).doctor()
+    bridge_wait = float(getattr(args, "wait_bridge", 0.0))
+    if bridge_wait > 0:
+        server = PTBridgeServer(
+            port=getattr(args, "bridge_port", 54321),
+            result_timeout=max(bridge_wait, 1.0),
+        )
+        server.start()
+        try:
+            server.wait_for_extension(timeout=bridge_wait)
+            payload["bridge_connected"] = True
+        except ScriptBridgeError as exc:
+            payload["bridge_connected"] = False
+            payload["bridge_error"] = str(exc)
+            errors = payload.get("validation_errors")
+            if isinstance(errors, list):
+                errors.append(str(exc))
+        finally:
+            server.stop()
     payload["python"] = sys.version
     payload["python_executable"] = sys.executable
     _json_print(payload)
@@ -161,12 +156,26 @@ def command_doctor(args: argparse.Namespace) -> int:
 
 
 def command_validate_dsl(args: argparse.Namespace) -> int:
-    payload = NetworkValidationService(
-        workspace_root=PROJECT_ROOT,
-        schema_path=Path(args.schema),
-    ).validate(args.path)
-    _json_print(payload)
-    return 0 if payload["valid"] else 1
+    try:
+        document = load_yaml_document(args.path)
+        result = NetworkValidator(args.schema).validate(document)
+    except Exception as exc:
+        _json_print(
+            {
+                "valid": False,
+                "issues": [
+                    {
+                        "severity": "error",
+                        "code": "DSL_LOAD_ERROR",
+                        "path": "$",
+                        "message": str(exc),
+                    }
+                ],
+            }
+        )
+        return 1
+    _json_print(result.to_dict())
+    return 0 if result.valid else 1
 
 
 def command_check_commands(args: argparse.Namespace) -> int:
@@ -182,12 +191,23 @@ def command_check_commands(args: argparse.Namespace) -> int:
 
 
 def command_compile_dsl(args: argparse.Namespace) -> int:
-    payload = CompilationService(workspace_root=PROJECT_ROOT).compile(
-        args.path,
-        output=args.output,
-    )
+    try:
+        document = load_yaml_document(args.path)
+        network = compile_network_dsl(document)
+    except (DslCompileError, ValueError) as exc:
+        _json_print({"compiled": False, "error": str(exc)})
+        return 1
+    payload = network.to_dict()
+    if args.output:
+        output = Path(args.output).resolve()
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        payload["output_path"] = str(output)
     _json_print(payload)
-    return 0 if payload["compiled"] else 1
+    return 0
 
 
 def command_launch_gui(args: argparse.Namespace) -> int:
@@ -2723,62 +2743,6 @@ def _configure_dsl_host_with_retry(
     raise last_error
 
 
-def command_job_start(args: argparse.Namespace) -> int:
-    options = JobOptions(
-        bridge_port=args.bridge_port,
-        result_timeout=args.result_timeout,
-        connect_timeout=args.connect_timeout,
-        cli_timeout=args.cli_timeout,
-        ping_timeout=args.ping_timeout,
-        traceroute_timeout=args.traceroute_timeout,
-        save_timeout=args.save_timeout,
-        convergence_rounds=args.convergence_rounds,
-        max_runtime=args.max_runtime,
-    )
-    manager = _job_manager(args, recover=True)
-    _json_print(
-        manager.start(
-            args.path,
-            options=options,
-            detached=True,
-        )
-    )
-    return 0
-
-
-def command_job_status(args: argparse.Namespace) -> int:
-    job = _job_manager(args).get(args.job_id)
-    if job is None:
-        _json_print({"found": False, "job_id": args.job_id})
-        return 1
-    _json_print(job)
-    return 0
-
-
-def command_job_result(args: argparse.Namespace) -> int:
-    result = _job_manager(args).result(args.job_id)
-    if result is None:
-        _json_print({"found": False, "job_id": args.job_id})
-        return 1
-    _json_print(result)
-    return 0
-
-
-def command_job_cancel(args: argparse.Namespace) -> int:
-    job = _job_manager(args).cancel(args.job_id)
-    if job is None:
-        _json_print({"found": False, "job_id": args.job_id})
-        return 1
-    _json_print(job)
-    return 0
-
-
-def command_job_list(args: argparse.Namespace) -> int:
-    jobs = _job_manager(args).list_jobs()
-    _json_print({"count": len(jobs), "jobs": jobs})
-    return 0
-
-
 def command_deploy_dsl(args: argparse.Namespace) -> int:
     try:
         document = load_yaml_document(args.path)
@@ -2787,11 +2751,7 @@ def command_deploy_dsl(args: argparse.Namespace) -> int:
         _json_print({"deployed": False, "error": str(exc)})
         return 1
 
-    artifacts = (
-        Path(args.artifacts_dir).expanduser().resolve()
-        if getattr(args, "artifacts_dir", None)
-        else PROJECT_ROOT / "artifacts"
-    )
+    artifacts = PROJECT_ROOT / "artifacts"
     artifacts.mkdir(parents=True, exist_ok=True)
     slug = re.sub(r"[^A-Za-z0-9._-]+", "-", network.project).strip("-")
     slug = slug or "network"
@@ -3284,6 +3244,13 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     doctor = subparsers.add_parser("doctor", help="Validate local paths and config")
+    doctor.add_argument("--bridge-port", type=int, default=54321)
+    doctor.add_argument(
+        "--wait-bridge",
+        type=float,
+        default=0.0,
+        help="Wait this many seconds for the PT Script Module to poll",
+    )
     doctor.set_defaults(func=command_doctor)
 
     validate_dsl = subparsers.add_parser(
@@ -3322,7 +3289,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Validate, compile, deploy, save, reopen, and verify a YAML network",
     )
     deploy_dsl.add_argument("path")
-    deploy_dsl.add_argument("--artifacts-dir")
     deploy_dsl.add_argument("--bridge-port", type=int, default=54321)
     deploy_dsl.add_argument("--result-timeout", type=float, default=30.0)
     deploy_dsl.add_argument("--connect-timeout", type=float, default=90.0)
@@ -3337,40 +3303,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Reuse the current topology and replay command plans from this index",
     )
     deploy_dsl.set_defaults(func=command_deploy_dsl)
-
-    job = subparsers.add_parser(
-        "job",
-        help="Start and inspect persistent long-running deployment jobs",
-    )
-    job_actions = job.add_subparsers(dest="job_action", required=True)
-
-    job_start = job_actions.add_parser("start", help="Start a deployment job")
-    job_start.add_argument("path")
-    job_start.add_argument("--data-dir")
-    job_start.add_argument("--bridge-port", type=int, default=54321)
-    job_start.add_argument("--result-timeout", type=float, default=180.0)
-    job_start.add_argument("--connect-timeout", type=float, default=60.0)
-    job_start.add_argument("--cli-timeout", type=float, default=120.0)
-    job_start.add_argument("--ping-timeout", type=float, default=30.0)
-    job_start.add_argument("--traceroute-timeout", type=float, default=45.0)
-    job_start.add_argument("--save-timeout", type=float, default=60.0)
-    job_start.add_argument("--convergence-rounds", type=int, default=3)
-    job_start.add_argument("--max-runtime", type=float, default=1800.0)
-    job_start.set_defaults(func=command_job_start)
-
-    for action, help_text, function in (
-        ("status", "Return the current state of a deployment job", command_job_status),
-        ("result", "Return the persisted result of a deployment job", command_job_result),
-        ("cancel", "Cancel a queued or running deployment job", command_job_cancel),
-    ):
-        command = job_actions.add_parser(action, help=help_text)
-        command.add_argument("job_id")
-        command.add_argument("--data-dir")
-        command.set_defaults(func=function)
-
-    job_list = job_actions.add_parser("list", help="List deployment jobs")
-    job_list.add_argument("--data-dir")
-    job_list.set_defaults(func=command_job_list)
 
     launch = subparsers.add_parser(
         "launch-gui", help="Launch Packet Tracer with the Script Module workflow"

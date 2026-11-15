@@ -5,5 +5,4 @@
 __pycache__/
 *.pyc
 *.egg-info/
-.pt-agent-job.lock
 

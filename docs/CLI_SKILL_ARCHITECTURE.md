@@ -3,94 +3,51 @@
 ## Product Boundary
 
 The current product is a Windows CLI with a companion Codex skill. It does not
-embed an agent and does not expose an MCP server.
+embed an agent, expose an MCP server, or run background job workers.
 
 ```text
 Agent
   -> Shell
   -> pt-agent CLI
-  -> Application Services
   -> Windows Packet Tracer Runtime
   -> PT Bridge
   -> Packet Tracer
 ```
 
-The agent supplies reasoning and user interaction. The CLI supplies deterministic
-validation, compilation, deployment, persistence, and evidence collection. The
-skill defines the operating sequence and evidence requirements.
+The agent supplies reasoning and user interaction. The CLI supplies
+deterministic validation, compilation, deployment, persistence, and evidence
+collection. The skill defines the operating sequence and evidence requirements.
 
 ## Layers
 
 ```text
 pt_agent/
-├── application/          Stable validation and compilation services
-├── jobs/                 Persistent long-running deployment jobs
-├── runtime/              Windows PT discovery and process integration
-├── compiler/             IOS command templates
-├── dsl_compiler.py       Full YAML-to-plan compilation
-├── validation.py         Schema, semantic, and command-safety checks
-├── script_backend.py     PT Script Engine JavaScript builders
-├── script_bridge.py      Local HTTP bridge
-├── dsl_deployment.py     Verification evaluation
-└── cli.py                Command adapter and deployment orchestration
+|-- runtime/              Windows PT discovery and process integration
+|-- compiler/             IOS command templates
+|-- dsl_compiler.py       Full YAML-to-plan compilation
+|-- validation.py         Schema, semantic, and command-safety checks
+|-- script_backend.py     PT Script Engine JavaScript builders
+|-- script_bridge.py      Local HTTP bridge
+|-- dsl_deployment.py     Verification evaluation
+`-- cli.py                Command adapter and deployment orchestration
 ```
 
-New transports must call application services or the public CLI. They must not
-import private JavaScript builders or bypass command validation.
+The agent calls only the public CLI. It must not import private JavaScript
+builders or bypass command validation.
 
 ## Agent-Facing Commands
 
-Read-only commands return JSON:
+Commands return JSON:
 
 ```powershell
-pt-agent doctor
+pt-agent doctor --wait-bridge 5
 pt-agent validate-dsl <file>
 pt-agent compile-dsl <file>
-pt-agent job status <job-id>
-pt-agent job result <job-id>
-pt-agent job list
+pt-agent deploy-dsl <file>
 ```
 
-Mutation commands:
-
-```powershell
-pt-agent job start <file> --data-dir artifacts\jobs
-pt-agent job cancel <job-id> --data-dir artifacts\jobs
-```
-
-`deploy-dsl` remains available for direct diagnostics and test automation, but
-normal agent use should start a Job so that the operation can be queried and
-cancelled independently.
-
-## Job Lifecycle
-
-```text
-queued
-  -> running / starting
-  -> running / deploying
-  -> passed / completed
-     or failed / completed
-     or cancelled
-     or timed_out
-```
-
-Each job owns one directory:
-
-```text
-artifacts/jobs/job-YYYYMMDD-HHMMSS-xxxxxxxx/
-├── request.json
-├── job.json
-├── stdout.log
-├── stderr.log
-├── worker.stdout.log
-├── worker.stderr.log
-├── dsl-<project>.pkt
-├── dsl-<project>.json
-└── dsl-<project>-audit.jsonl
-```
-
-The detached worker runs one deployment subprocess. Job state is persisted
-atomically after state changes, so a later CLI invocation can query the result.
+The agent runs deployment in the foreground and waits for the process to
+finish. The command returns the final JSON report and standard exit code.
 
 ## Windows Runtime
 
@@ -108,10 +65,9 @@ not claim Linux or macOS PT support.
 
 ## Security Rules
 
-- YAML and artifact inputs are constrained to the workspace.
 - Model-facing workflows use the YAML compiler and CommandPlan allowlist.
-- Raw JavaScript and arbitrary IOS command execution are not public tools.
-- A job is the unit of cancellation, audit, and artifact ownership.
+- Raw JavaScript and arbitrary IOS command execution are not public commands.
+- Each deployment produces a PKT, JSON report, and JSONL audit log.
 - Test expectations must not be weakened just to obtain a passing report.
 
 ## Skill
@@ -122,12 +78,11 @@ The operational skill is:
 skills/pt-network-automation/SKILL.md
 ```
 
-It defines the doctor -> validate -> compile -> job start -> job status ->
-job result workflow and routes failure diagnosis to the troubleshooting
-playbook.
+It defines the doctor -> validate -> compile -> deploy workflow and routes
+failure diagnosis to the troubleshooting playbook.
 
-## Future Optional MCP Adapter
+## Future Optional Integration
 
-If a later product requires MCP clients, add a transport adapter over the same
-application services. The existing compiler, validation, runtime, and Job
-storage do not need to move.
+If a later product requires MCP or another transport, add a thin adapter over
+the same CLI operations. The compiler, validation, and runtime do not need to
+move.

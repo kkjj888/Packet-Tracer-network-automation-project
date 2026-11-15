@@ -32,11 +32,12 @@ only.
 1. Check the local runtime:
 
 ```text
-pt-agent doctor
+pt-agent doctor --wait-bridge 5
 ```
 
-Stop if `validation_errors` is non-empty. Packet Tracer must be open with the
-project's `vendor/mcp-bridge.pts` Script Module active before deployment.
+Stop if `validation_errors` is non-empty or `bridge_connected` is false.
+Packet Tracer must be open with the project's `vendor/mcp-bridge.pts` Script
+Module active before deployment.
 
 2. Read the target YAML and validate it:
 
@@ -53,29 +54,15 @@ requested network based on the validation issues.
 pt-agent compile-dsl <dsl-path>
 ```
 
-4. Start deployment through the persistent Job API:
+4. Deploy directly and wait for the command to finish:
 
 ```text
-pt-agent job start <dsl-path> --data-dir artifacts/jobs
+pt-agent deploy-dsl <dsl-path>
 ```
 
-Do not run `deploy-dsl` synchronously for normal agent work. Keep the returned
-`job_id`.
-
-5. Poll status until it is terminal:
-
-```text
-pt-agent job status <job-id> --data-dir artifacts/jobs
-```
-
-Poll every few seconds. Do not report success while the status is `queued` or
-`running`.
-
-6. Read the final result:
-
-```text
-pt-agent job result <job-id> --data-dir artifacts/jobs
-```
+Allow the shell command enough time for topology creation, configuration,
+verification, save, and reopen. Do not terminate a still-running deployment
+merely because it takes several minutes.
 
 Success requires all of:
 
@@ -90,18 +77,10 @@ Success requires all of:
 Evidence order:
 
 ```text
-job status
--> stderr/stdout tail
+deploy command output and exit code
 -> report.json
 -> audit.jsonl
 -> live PT state only when needed
-```
-
-Use `job cancel` only for a queued/running job that is stuck or no longer
-needed:
-
-```text
-pt-agent job cancel <job-id> --data-dir artifacts/jobs
 ```
 
 For network failures, read
