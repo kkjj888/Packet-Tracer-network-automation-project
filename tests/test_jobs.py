@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 
 from pt_agent.jobs import JobManager, JobOptions
+from pt_agent.jobs.manager import WorkspaceJobLock
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -17,6 +18,20 @@ ASSIGNMENT_CASE = (
 
 
 class JobManagerTests(unittest.TestCase):
+    def test_workspace_lock_is_exclusive(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            lock_path = Path(temporary) / ".pt-agent-job.lock"
+            first = WorkspaceJobLock(lock_path)
+            second = WorkspaceJobLock(lock_path)
+            try:
+                self.assertTrue(first.acquire(timeout=1))
+                self.assertFalse(second.acquire(timeout=0.1))
+                first.release()
+                self.assertTrue(second.acquire(timeout=1))
+            finally:
+                first.release()
+                second.release()
+
     def test_in_process_job_persists_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             data_root = Path(temporary) / "jobs"

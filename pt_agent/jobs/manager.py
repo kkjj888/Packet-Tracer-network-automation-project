@@ -18,6 +18,16 @@ from typing import Callable, Mapping
 
 from ..application.services import resolve_workspace_file
 
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - Windows
+    fcntl = None
+
+try:
+    import msvcrt
+except ImportError:  # pragma: no cover - non-Windows
+    msvcrt = None
+
 
 def _timestamp() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
@@ -37,6 +47,51 @@ class JobOptions:
 
 
 CommandBuilder = Callable[[Path, Path, JobOptions], list[str]]
+
+
+class WorkspaceJobLock:
+    """Serialize PT mutations across manager and detached worker processes."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path.resolve()
+        self._stream: object | None = None
+
+    def acquire(self, *, timeout: float) -> bool:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        stream = self.path.open("a+b")
+        stream.seek(0, 2)
+        if stream.tell() == 0:
+            stream.write(b"\0")
+            stream.flush()
+        stream.seek(0)
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                if msvcrt is not None:
+                    msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+                elif fcntl is not None:
+                    fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                self._stream = stream
+                return True
+            except OSError:
+                if time.monotonic() >= deadline:
+                    stream.close()
+                    return False
+                time.sleep(0.25)
+
+    def release(self) -> None:
+        stream = self._stream
+        if stream is None:
+            return
+        self._stream = None
+        try:
+            if msvcrt is not None:
+                stream.seek(0)
+                msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+            elif fcntl is not None:
+                fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+        finally:
+            stream.close()
 
 
 class JobManager:
@@ -492,6 +547,11 @@ class JobManager:
                 continue
             if job.get("status") not in {"queued", "running"}:
                 continue
+            if any(
+                self._pid_alive(job.get(key))
+                for key in ("deploy_pid", "worker_pid")
+            ):
+                continue
             job.update(
                 status="failed",
                 stage="interrupted",
@@ -500,3 +560,34 @@ class JobManager:
                 error="Job was interrupted when its manager process exited",
             )
             self._write_job(job)
+
+    @staticmethod
+    def _pid_alive(value: object) -> bool:
+        try:
+            pid = int(value)
+        except (TypeError, ValueError):
+            return False
+        if pid <= 0:
+            return False
+        if sys.platform.startswith("win"):
+            try:
+                import ctypes
+
+                process = ctypes.windll.kernel32.OpenProcess(
+                    0x1000,
+                    False,
+                    pid,
+                )
+                if not process:
+                    return False
+                ctypes.windll.kernel32.CloseHandle(process)
+                return True
+            except Exception:
+                return False
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True

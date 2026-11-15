@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from .manager import JobManager
+from .manager import JobManager, JobOptions, WorkspaceJobLock
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -21,8 +21,36 @@ def main(argv: list[str] | None = None) -> int:
         recover=False,
         in_process=False,
     )
+    job = manager.get(args.job_id)
+    if job is None:
+        raise FileNotFoundError(f"job not found: {args.job_id}")
+    options = JobOptions(**job["options"])
+    job.update(
+        stage="waiting_for_pt_slot",
+        progress=1,
+        updated_at=_worker_timestamp(),
+    )
+    manager._write_job(job)
+    lock = WorkspaceJobLock(
+        args.workspace_root / ".pt-agent-job.lock"
+    )
     try:
+        if not lock.acquire(timeout=options.max_runtime):
+            raise TimeoutError("timed out waiting for the PT execution lock")
         manager.run_existing(args.job_id)
+    except TimeoutError as exc:
+        job = manager.get(args.job_id)
+        if job is not None:
+            job.update(
+                status="timed_out",
+                stage="timed_out",
+                progress=100,
+                finished_at=_worker_timestamp(),
+                updated_at=_worker_timestamp(),
+                error=str(exc),
+            )
+            manager._write_job(job)
+        raise
     except Exception as exc:
         job = manager.get(args.job_id)
         if job is not None and job.get("status") not in {
@@ -41,6 +69,8 @@ def main(argv: list[str] | None = None) -> int:
             )
             manager._write_job(job)
         raise
+    finally:
+        lock.release()
     return 0
 
 
