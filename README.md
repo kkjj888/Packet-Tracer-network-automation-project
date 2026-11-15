@@ -2,7 +2,7 @@
 
 一个面向 Agent 的 Packet Tracer 网络自动化后端。Agent 生成 YAML 网络描述，通过 `pt-agent` CLI 完成校验、编译、部署、验收、保存和重新打开。
 
-当前版本是 **Windows-only CLI + Skill**，不包含 MCP Server、后台 Job 系统或内嵌 Agent。
+当前版本是基于windows平台，包含后端代码与skill，不包含 MCP Server、后台 Job 系统或内嵌 Agent。
 
 ## 功能
 
@@ -89,8 +89,6 @@ artifacts/dsl-<project>.json
 artifacts/dsl-<project>-audit.jsonl
 ```
 
-`artifacts/` 不提交到 Git。
-
 ## Agent Skill
 
 Skill 位于 [skills/pt-network-automation](skills/pt-network-automation/SKILL.md)。
@@ -152,10 +150,6 @@ python -m unittest discover -s tests
 
 当前测试覆盖 Schema、语义、安全、命令模板、YAML 编译、验收解析、Script Bridge、Windows Runtime 和作业案例。
 
-## 作业案例
-
-UC-01 到 UC-12 的映射、验收结果和人工检查说明见 [Assignment Test Cases](docs/ASSIGNMENT_TEST_CASES.md)。
-
 ## 安全
 
 - 原始 IOS 命令必须经过 allowlist 和危险命令黑名单
@@ -172,11 +166,9 @@ Agent 和开发者可参考 [LLM Troubleshooting Playbook](docs/LLM_TROUBLESHOOT
 ## 已知限制
 
 - 仅支持 Windows
-- 依赖 Packet Tracer GUI 和手动启动的 Script Module
 - 当前部署命令前台运行，耗时取决于场景规模
 - 固定输出到 `artifacts/`
 - 不支持 DSL 之外的任意 IOS 配置
-- PT 9.0.1 不支持 `tunnel mode gre ipv6`，UC-10 使用 `tunnel mode ipv6ip`
 - 通用故障诊断和修复由 Agent 按 Skill 执行，后端不提供通用 Repair Engine
 
 ## 目录
