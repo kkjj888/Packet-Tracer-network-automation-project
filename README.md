@@ -1,353 +1,192 @@
-# Bonus: Packet Tracer Backend Bootstrap
+# Packet Tracer Agent CLI
 
-This directory contains the first backend milestone for the LLM-driven Packet Tracer project.
+一个面向 Agent 的 Packet Tracer 网络自动化后端。Agent 生成 YAML 网络描述，通过 `pt-agent` CLI 完成校验、编译、部署、验收、保存和重新打开。
 
-The current goal is deliberately narrow:
+当前版本是 **Windows-only CLI + Skill**，不包含 MCP Server、后台 Job 系统或内嵌 Agent。
+
+## 功能
+
+- YAML 网络 DSL
+- JSON Schema、网络语义和 IOS 危险命令三层校验
+- Packet Tracer Script Engine 自动化
+- 设备、模块和链路的自动创建
+- IPv4、IPv6、VLAN、Trunk、SVI、静态路由、RIP、OSPF、BGP、ACL、NAT、DHCP 和 Tunnel
+- Ping、全有向连通矩阵、路由表、Traceroute、NAT、DHCP 和设备输出验收
+- 链路故障注入和故障后验收
+- PKT 保存、重新打开和持久化复验
+- JSON 运行报告和 JSONL 审计日志
+- Agent 可调用的 `pt-network-automation` Skill
+
+## 架构
 
 ```text
-install a PT Script Module
--> start a local Python HTTP bridge
--> send controlled JavaScript to PT's Script Engine
--> create a new PKT
--> add devices and links
--> save the PKT
--> reopen it and read back device/link counts
+Agent
+  -> Shell
+  -> pt-agent CLI
+  -> Windows Packet Tracer Runtime
+  -> PT Bridge
+  -> PT Script Engine
+  -> Cisco Packet Tracer
 ```
 
-The current backend includes a YAML network DSL, JSON Schema validation,
-network-semantic checks, command-safety checks, and verified Packet Tracer
-configuration/acceptance loops. Agent and frontend integration remain later
-milestones.
+详细说明见 [CLI + Skill Architecture](docs/CLI_SKILL_ARCHITECTURE.md)。
 
-See [`PROJECT_STATUS.md`](PROJECT_STATUS.md) for the current architecture,
-completed capabilities, test matrix, remaining work, and next milestones.
+## 环境要求
 
-The complete assignment UC run, including pass/fail evidence and the manual
-inspection bundle, is documented in
-[`docs/ASSIGNMENT_TEST_CASES.md`](docs/ASSIGNMENT_TEST_CASES.md).
+- Windows
+- Python 3.11+
+- Cisco Packet Tracer 9.0.1
+- [vendor/mcp-bridge.pts](vendor/mcp-bridge.pts)
 
-The current agent-facing product boundary is documented in
-[`docs/CLI_SKILL_ARCHITECTURE.md`](docs/CLI_SKILL_ARCHITECTURE.md). It uses a
-Windows-only CLI plus the [`pt-network-automation`](skills/pt-network-automation/SKILL.md)
-skill; MCP is not part of the first product version.
-
-For LLM-assisted fault localization and repair, use
-[`docs/LLM_TROUBLESHOOTING_PLAYBOOK.md`](docs/LLM_TROUBLESHOOTING_PLAYBOOK.md).
-It defines the evidence order, minimum-repair policy, regression checks, and
-Packet Tracer-specific failure knowledge used by the project.
-
-Command allowlisting, destructive-command isolation, and audit evidence are
-documented in [`docs/COMMAND_SAFETY.md`](docs/COMMAND_SAFETY.md).
-
-## Current Result
-
-Validate a network DSL document:
+安装 Python 依赖和 CLI：
 
 ```powershell
-python -m pt_agent validate-dsl examples\campus-vlan.yaml
-python -m pt_agent validate-dsl examples\ospf-routing.yaml
-python -m pt_agent compile-dsl examples\campus-vlan.yaml
-python -m pt_agent deploy-dsl examples\campus-vlan.yaml
-python -m pt_agent deploy-dsl examples\ospf-routing.yaml
+python -m pip install -e .
 ```
 
-See [`docs/DSL_VALIDATION.md`](docs/DSL_VALIDATION.md) for the DSL structure,
-validation layers, deployment flow, and safety behavior.
+如果 `pt-agent` 不在 `PATH` 中，可使用：
 
-The Script Engine route has been verified end to end against Packet Tracer
-9.0.1:
-
-- Extension connected to the Python bridge at `127.0.0.1:54321`.
-- Created `PC1`, `PC2`, and `SW1`.
-- Created both switch links through `LogicalWorkspace.createLink()`.
-- Saved a 48,080-byte PKT file.
-- Reopened the PKT and read back the same three devices and two links.
-
-Evidence:
-
-```text
-artifacts/script-engine-smoke.pkt
-artifacts/script-engine-smoke.json
+```powershell
+python -m pt_agent
 ```
 
-The first configuration/verification loop is also verified:
+## 安装 PT Script Module
 
-```text
-PC1: 192.168.1.10/24
-PC2: 192.168.1.11/24
-Ping: 4 sent, 4 received, 0 lost
-Save and reopen: addresses preserved
-Audit: 52 independent JSONL events
-```
-
-Evidence:
-
-```text
-artifacts/config-ping-smoke.pkt
-artifacts/config-ping-smoke.json
-artifacts/config-ping-audit.jsonl
-```
-
-The first deterministic fault-repair loop is also verified:
-
-```text
-Baseline Ping: 4/4 successful
-Injected fault: PC1 mask 255.255.255.252 instead of 255.255.255.0
-Faulted Ping: 0 successful replies
-Diagnosis: HOST_MASK_MISMATCH on PC1:FastEthernet0
-Repair: reapply the expected mask on PC1 only
-Final Ping: 4/4 successful
-Repair rounds: 1
-```
-
-Evidence:
-
-```text
-artifacts/repair-smoke.pkt
-artifacts/repair-smoke.json
-artifacts/repair-audit.jsonl
-```
-
-Packet Tracer automatically adds one internal `Power Distribution Device0`
-to a new canvas, so the raw device count is four while the intended topology
-contains three devices.
-
-## Script Engine Route
-
-The main route is:
-
-```text
-Python backend
-  -> local HTTP bridge (127.0.0.1:54321)
-  -> Packet Tracer Script Module (`.pts`)
-  -> PT Script Engine
-  -> PT native `ipc.*` JavaScript API
-```
-
-The Python side builds each JavaScript expression, queues it for PT, receives
-the PT result, and performs the acceptance checks. The Script Module only
-polls the bridge and executes code inside Packet Tracer.
-
-### Install The Script Module
-
-The validation build uses the MIT-licensed extension from
-`Jcorderop02/packet-tracer-mcp`, vendored at:
-
-```text
-vendor/mcp-bridge.pts
-```
-
-In Packet Tracer:
+在 Packet Tracer 中执行：
 
 ```text
 Extensions
 -> Scripting
 -> Configure PT Script Modules
 -> Add
--> select vendor/mcp-bridge.pts
+-> 选择 vendor/mcp-bridge.pts
 -> Launch
 ```
 
-The module remains registered after a normal Packet Tracer restart.
+保持 `MCP Bridge` 窗口处于运行状态。这里的 `mcp-bridge.pts` 是本地 Script Module 和 HTTP Bridge，不是 Model Context Protocol Server。
 
-### Run The Script Engine Smoke Test
-
-Run:
+## 快速开始
 
 ```powershell
-python -m pt_agent script-demo
+# 1. 检查 PT、Script Module 和 Bridge
+pt-agent doctor --wait-bridge 5
+
+# 2. 校验 YAML
+pt-agent validate-dsl examples\assignment\uc01-ripv2-triangle.yaml
+
+# 3. 查看编译后的命令与验收计划
+pt-agent compile-dsl examples\assignment\uc01-ripv2-triangle.yaml
+
+# 4. 部署、验收、保存并重新打开
+pt-agent deploy-dsl examples\assignment\uc01-ripv2-triangle.yaml
 ```
 
-While the command is waiting for the extension, open:
+成功的部署会生成：
 
 ```text
-Extensions -> MCP Bridge
+artifacts/dsl-<project>.pkt
+artifacts/dsl-<project>.json
+artifacts/dsl-<project>-audit.jsonl
 ```
 
-The command starts the bridge, waits for the module, then performs:
+`artifacts/` 不提交到 Git。
+
+## Agent Skill
+
+Skill 位于 [skills/pt-network-automation](skills/pt-network-automation/SKILL.md)。
+
+基本流程：
 
 ```text
-fileNew(false)
--> add PC1, PC2, and SW1
--> create two Ethernet links
--> save .pkt
--> fileNew(false)
--> fileOpen(saved .pkt)
--> read device names/models and link count
+doctor
+-> validate-dsl
+-> compile-dsl
+-> deploy-dsl
+-> 读取 JSON report 和 JSONL audit
 ```
 
-To run the bridge separately:
+Skill 规定 Agent：
 
-```powershell
-python -m pt_agent script-bridge
-```
+- 只通过 CLI 操作后端
+- 不直接执行内部 Python 或 PT JavaScript
+- 不为通过测试随意修改预期值
+- 失败时先读取报告和审计日志
+- 遇到平台限制时明确记录，而不是伪造成功
 
-The extension polls `http://127.0.0.1:54321/next`.
+## YAML DSL
 
-To run the static-IP and Ping verification loop:
-
-```powershell
-python -m pt_agent config-ping-demo
-```
-
-This creates the topology, configures both PCs, performs a warm-up Ping,
-executes the measured 4-packet Ping, saves the project, reopens it, and checks
-that both addresses survived the round trip.
-
-To run the deterministic fault-injection and repair loop:
-
-```powershell
-python -m pt_agent repair-demo
-```
-
-This proves a working baseline, injects a wrong host mask, verifies that Ping
-fails, compares PT's live address state with the expected configuration,
-applies the minimum repair, and verifies connectivity again.
-
-### Script Engine Scope Implemented Here
-
-- Local HTTP command bridge
-- Script Module connection detection
-- Python-to-JavaScript command transport
-- Hex result decoding
-- New project
-- Add router/switch/PC-compatible devices through native `ipc.*`
-- Rename and power devices
-- Create links with explicit endpoints
-- Read device names/models and link count
-- Configure and read back static host addresses
-- Configure and read back VLANs and access-port assignments
-- Configure `SwitchPortMode` trunks and read back live trunk state
-- Configure and read back router IPv4 interfaces
-- Configure numbered ACLs and interface bindings
-- Add static/default routes and read PT's structured routing table
-- Configure RIP v1/v2 through PT's native CLI and verify convergence
-- Configure OSPF process IDs, wildcard masks, and areas
-- Run Ping through the PT host command line
-- Parse complete Ping statistics and reject partial false positives
-- Deterministic host address diagnosis
-- Minimum repair for host IP or mask mismatch
-- Re-test after repair and save the repaired PKT
-- Write append-only JSONL audit events
-- Save to PKT
-- Open an existing PKT
-- File existence and size checks
-
-### Current Limitation
-
-The vendored validation `.pts` supports the HTTP command channel. The
-file-mailbox fallback described by the Mats2208 project is not part of this
-vendor package.
-
-The final project should replace this temporary module with our own Script
-Module that supports:
-
-- request IDs and correlated results;
-- a local authentication token;
-- an allowlisted command protocol;
-- HTTP polling while its window is open;
-- a file mailbox when the extension window is closed.
-
-## Legacy ExApp / PTMP Experiment
-
-The deprecated PTMP/ExApp code and build artifacts are archived under
-[`trash/ptmp_exapp`](trash/ptmp_exapp/README.md). The active CLI no longer
-imports that code.
-
-## Requirements
-
-- Windows
-- Python 3.11 or newer
-- Cisco Packet Tracer 9.0.1
-
-The default Packet Tracer root is:
+支持的顶层字段：
 
 ```text
-D:\Cisco Packet Tracer 9.0.1
+devices
+links
+ipv4
+ipv6
+ipv6_tunnels
+vlans
+vlan_assignments
+switch_routing
+svis
+hsrp
+stp
+routing
+dhcp
+dhcp_clients
+nat
+link_failures
+acls
+acl_bindings
+management
+wireless
+verification
+addressing_constraint
 ```
 
-Override it with `--pt-root` or the `BONUS_PT_ROOT` environment variable.
+详见 [DSL Validation](docs/DSL_VALIDATION.md) 和 [Network Schema](schema/network.schema.json)。
 
-### First Run
-
-From `D:\codex\bonus`:
+## 测试
 
 ```powershell
-python -m pt_agent doctor
-python -m pt_agent launch-gui
+python -m unittest discover -s tests
 ```
 
-The first command validates the local PT installation. Then open:
+当前测试覆盖 Schema、语义、安全、命令模板、YAML 编译、验收解析、Script Bridge、Windows Runtime 和作业案例。
+
+## 作业案例
+
+UC-01 到 UC-12 的映射、验收结果和人工检查说明见 [Assignment Test Cases](docs/ASSIGNMENT_TEST_CASES.md)。
+
+## 安全
+
+- 原始 IOS 命令必须经过 allowlist 和危险命令黑名单
+- 模型不直接调用 PT JavaScript API
+- 危险操作不会暴露为 Agent 工作流
+- 每次部署写入 JSONL 审计日志
+
+详见 [Command Safety](docs/COMMAND_SAFETY.md)。
+
+## 故障排查
+
+Agent 和开发者可参考 [LLM Troubleshooting Playbook](docs/LLM_TROUBLESHOOTING_PLAYBOOK.md)。
+
+## 已知限制
+
+- 仅支持 Windows
+- 依赖 Packet Tracer GUI 和手动启动的 Script Module
+- 当前部署命令前台运行，耗时取决于场景规模
+- 固定输出到 `artifacts/`
+- 不支持 DSL 之外的任意 IOS 配置
+- PT 9.0.1 不支持 `tunnel mode gre ipv6`，UC-10 使用 `tunnel mode ipv6ip`
+- 通用故障诊断和修复由 Agent 按 Skill 执行，后端不提供通用 Repair Engine
+
+## 目录
 
 ```text
-Extensions -> Scripting -> Configure PT Script Modules
+pt_agent/     Python 后端与 CLI
+schema/       YAML JSON Schema
+examples/     DSL 示例和作业用例
+skills/       Agent Skill
+docs/         架构、安全、测试和故障排查文档
+tests/        自动化测试
+vendor/       PT Script Module 及其许可证
 ```
-
-Register `vendor/mcp-bridge.pts`, launch `MCP Bridge`, and open its extension
-window. The extension polls `http://127.0.0.1:54321` while it is running.
-
-Router and switch integration tests also dismiss PT's first-boot
-configuration dialog. That dialog is a real forwarding blocker: structured
-IPC calls can write interface configuration while the dialog is open, but
-packets are not forwarded until the dialog is answered `no`.
-
-## Useful Commands
-
-```powershell
-python -m pt_agent --help
-python -m pt_agent doctor
-python -m pt_agent script-demo
-python -m pt_agent script-bridge
-python -m pt_agent launch-gui
-python -m pt_agent config-ping-demo
-python -m pt_agent repair-demo
-python -m pt_agent config-suite-demo
-python -m pt_agent routing-suite-demo
-python -m pt_agent trunk-suite-demo
-```
-
-## Verified Configuration Matrix
-
-The current integration suites run against Packet Tracer 9.0.1 and save both
-PKT projects and JSONL audit traces under `artifacts/`.
-
-| Area | Verified behavior | Primary artifact |
-|---|---|---|
-| Host addressing and Ping | Warm-up, 4-packet statistics, save/reopen | `config-ping-smoke.json` |
-| Fault repair | Inject wrong mask, diagnose, minimum repair, verify | `repair-smoke.json` |
-| VLAN access ports | VLAN 10/20 persistence; same-VLAN Ping 4/4 | `config-suite-smoke.json` |
-| ACL | Routed baseline 4/4; deny rule changes result to 0/4 | `config-suite-smoke.json` |
-| Static/default routing | Default and return route persist across reopen | `config-routing-suite.json` |
-| RIPv1/v2 | RIPv1 failed with auto-summary; RIPv2 plus `no auto-summary` passed | `config-routing-suite.json` |
-| OSPF | Process 100, wildcard masks, area 0, OSPF route and Ping persisted | `config-routing-suite.json` |
-| Trunk | Same VLAN traverses trunk 4/4; cross VLAN is isolated | `config-trunk-suite.json` |
-
-The routing suite verifies PT's live routing table, not only command output.
-For OSPF, R1 learns `172.16.20.0/24` via `10.0.0.2` with administrative
-distance 110. For RIPv2, the remote route is learned with administrative
-distance 120.
-
-## Current Boundaries
-
-The following are not yet part of this verification matrix:
-
-- NAT/PAT and DHCP pools
-- IPv6 and tunnels
-- BGP and redundant-path failover
-- Traceroute and structured PDU assertions
-- YAML DSL and JSON Schema validation
-- Production authentication and request correlation in our own `.pts`
-
-The audited tests are local Packet Tracer simulations only.
-
-## Design Notes
-
-- PKT contains the actual network project.
-- Python owns orchestration, validation, assertions, reporting, and audit.
-- JavaScript only executes Packet Tracer's native IPC operations.
-- Interface state and reachability are read back from PT before a step passes.
-- PT's first-boot dialog must be dismissed before packet forwarding works.
-- The vendored bridge is for local validation; production needs a token,
-  request IDs, an allowlist, and a file-mailbox fallback.
-- This milestone is local-simulation only.
-
