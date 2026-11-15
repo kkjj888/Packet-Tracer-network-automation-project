@@ -58,3 +58,5 @@ verification:
     - {device: R2, destination: 192.168.0.0/24, protocol: ospf, admin_distance: 110}
   device_output_assertions:
     - {name: r1-ospf-neighbor, device: R1, command: show ip ospf neighbor, expected_contains: [FULL]}
+    - {name: r0-interarea-route, device: R0, command: show ip route, expected_contains: ["O IA"]}
+    - {name: r2-interarea-route, device: R2, command: show ip route, expected_contains: ["O IA"]}

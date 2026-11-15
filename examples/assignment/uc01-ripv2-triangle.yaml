@@ -37,7 +37,7 @@ links:
     cable: serial
 
 ipv4:
-  - {device: R0, port: GigabitEthernet0/0, address: 192.168.16.62/26}
+  - {device: R0, port: GigabitEthernet0/0, address: 192.168.16.126/25}
   - {device: R0, port: Serial0/0/0, address: 10.0.0.1/30}
   - {device: R0, port: Serial0/0/1, address: 30.0.0.1/30}
   - {device: R1, port: Serial0/0/0, address: 10.0.0.2/30}
@@ -47,8 +47,8 @@ ipv4:
   - {device: R2, port: Serial0/0/1, address: 30.0.0.2/30}
   - device: PC0
     port: FastEthernet0
-    address: 192.168.16.10/26
-    gateway: 192.168.16.62
+    address: 192.168.16.10/25
+    gateway: 192.168.16.126
   - device: PC1
     port: FastEthernet0
     address: 192.168.16.129/26
@@ -74,7 +74,7 @@ verification:
       next_hop: 30.0.0.2
       admin_distance: 120
     - device: R2
-      destination: 192.168.16.0/26
+      destination: 192.168.16.0/25
       protocol: rip
       next_hop: 30.0.0.1
       admin_distance: 120

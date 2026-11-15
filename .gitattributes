@@ -1,5 +1,5 @@
 * text=auto
-*.pts text eol=lf
+*.pts binary
 *.yaml text eol=lf
 *.json text eol=lf
 *.pkt binary
