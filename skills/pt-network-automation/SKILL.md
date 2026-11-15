@@ -83,12 +83,11 @@ deploy command output and exit code
 -> live PT state only when needed
 ```
 
-For network failures, read
-[`../../docs/LLM_TROUBLESHOOTING_PLAYBOOK.md`](../../docs/LLM_TROUBLESHOOTING_PLAYBOOK.md).
-For DSL fields and validation rules, read
-[`../../docs/DSL_VALIDATION.md`](../../docs/DSL_VALIDATION.md).
+For network failures, read `docs/LLM_TROUBLESHOOTING_PLAYBOOK.md` from the
+project workspace containing `pt_agent/`.
+For DSL fields and validation rules, read `docs/DSL_VALIDATION.md`.
 Before proposing or validating destructive commands, read
-[`../../docs/COMMAND_SAFETY.md`](../../docs/COMMAND_SAFETY.md).
+`docs/COMMAND_SAFETY.md`.
 
 Never:
 
